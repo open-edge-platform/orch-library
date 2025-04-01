@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: (C) 2025 Intel Corporation
+#
+# SPDX-License-Identifier: Apache-2.0
+
+.idea
+.vscode
+.DS_Store
+/vendor/
+/build/_output/*
+kind.config.yaml
+/coverage.txt
+/coverage.xml
+vendor
+bin
+venv-env/

@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: (C) 2023 Intel Corporation
+#
+# SPDX-License-Identifier: Apache-2.0
+
+docs/api/
+venv_extensions/
+SECURITY.md
+CODE_OF_CONDUCT.md
+CONTRIBUTING.md
+ci/*
