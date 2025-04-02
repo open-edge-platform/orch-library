@@ -7,7 +7,7 @@ module github.com/open-edge-platform/orch-library/go/dazl/zap
 go 1.23.0
 
 require (
-	github.com/open-edge-platform/orch-library/go/dazl v0.5.1
+	github.com/open-edge-platform/orch-library/go/dazl v0.5.2
 	github.com/stretchr/testify v1.10.0
 	go.uber.org/zap v1.27.0
 )
