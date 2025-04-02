@@ -7,7 +7,7 @@ module github.com/open-edge-platform/orch-library/go/dazl/zerolog
 go 1.23.0
 
 require (
-	github.com/open-edge-platform/orch-library/go/dazl v0.5.1
+	github.com/open-edge-platform/orch-library/go/dazl v0.5.2
 	github.com/rs/zerolog v1.34.0
 	github.com/stretchr/testify v1.10.0
 )
