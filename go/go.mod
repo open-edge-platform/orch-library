@@ -21,7 +21,7 @@ require (
 	github.com/hashicorp/vault/api v1.14.0
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/oapi-codegen/runtime v1.1.1
-	github.com/open-edge-platform/orch-library/go/dazl v0.5.1
+	github.com/open-edge-platform/orch-library/go/dazl v0.5.2
 	github.com/spf13/cobra v1.8.0
 	github.com/spf13/viper v1.18.2
 	github.com/stretchr/testify v1.10.0
