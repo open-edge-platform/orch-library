@@ -12,17 +12,17 @@
 This library is a collection of Go language packages that are used to build the Orchestrator.
 
 The library includes common functionality that is used across many of the components of the Orchestrator, such as:
-[Application Catalog], [App Deployment Manager], [Tenant Controller] and [Cluster Manager].
+[Application Catalog], [App Deployment Manager], [Tenant Controller], and [Cluster Manager].
 
 Please see the [go/pkg](go/pkg) directory for the list of packages that are included in the library, and see the
 [go/README](go/README.md) document for more details.
 
 ## Get Started
 
-To include the library in your project, import the required package as a Go module in to your Go code:
+To include the library in your project, import the required package as a Go module into your Go code:
 
 ```text
-import  "github.com/open-edge-platform/orch-library/go/pkg/auth"
+import "github.com/open-edge-platform/orch-library/go/pkg/auth"
 ```
 
 ## Develop
@@ -35,7 +35,7 @@ If you wish to enhance an existing package, please open a pull request with your
 ## Contribute
 
 We welcome contributions from the community! To contribute, please open a pull request to have your changes reviewed
-and merged into the main. We encourage you to add appropriate unit tests and e2e tests if your contribution introduces
+and merged into the `main` branch. We encourage you to add appropriate unit tests and e2e tests if your contribution introduces
 a new feature. See the [CONTRIBUTING.md](CONTRIBUTING.md) file for more information.
 
 Additionally, ensure the following commands are successful:
