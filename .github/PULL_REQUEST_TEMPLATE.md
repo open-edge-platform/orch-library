@@ -1,5 +1,3 @@
-##### SPDX-FileCopyrightText: (C) 2022 Intel Corporation
-##### SPDX-License-Identifier: Apache-2.0
 ## Description
 
 Describe the purpose of this pull request.
