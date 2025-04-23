@@ -32,19 +32,51 @@ directory. Add unit tests for your new Go code. Do not duplicate code that is al
 
 If you wish to enhance an existing package, please open a pull request with your changes.
 
+## Dependencies
+
+This code requires the following tools to be installed on your development machine:
+
+- [Go\* programming language](https://go.dev)
+- [golangci-lint](https://github.com/golangci/golangci-lint)
+- [Python\* programming language version 3.10 or later](https://www.python.org/downloads)
+- [buf](https://github.com/bufbuild/buf)
+- [protoc-gen-doc](https://github.com/pseudomuto/protoc-gen-doc)
+- [protoc-gen-go-grpc](https://pkg.go.dev/google.golang.org/grpc)
+- [protoc-gen-go](https://pkg.go.dev/google.golang.org/protobuf)
+
+## Build
+
+Below are some of important make targets which developer should be aware about.
+
+Build the component binary as follows:
+
+```bash
+make build
+```
+
+Run unit tests are run for each PR and developer can run unit tests locally as follows:
+
+```bash
+make test
+```
+
+Linter checks are run for each PR and developer can run linter check locally as follows:
+
+```bash
+make lint
+```
+
+License checks are run for each PR and developer can run license check locally as follows:
+
+```bash
+make license
+```
+
 ## Contribute
 
 We welcome contributions from the community! To contribute, please open a pull request to have your changes reviewed
 and merged into the `main` branch. We encourage you to add appropriate unit tests and end-to-end tests if
 your contribution introduces a new feature. See [Contributor Guide] for information on how to contribute to the project.
-
-Additionally, ensure the following commands are successful:
-
-```shell
-make test
-make lint
-make license
-```
 
 ## Community and Support
 
