@@ -11,22 +11,20 @@ import (
 )
 
 func TestExtractAllPaths(t *testing.T) {
-	spec := &openapi3.T{
-		Paths: openapi3.Paths{
-			"/put-test-path": &openapi3.PathItem{
-				Put: &openapi3.Operation{},
-			},
-			"/post-test-path": &openapi3.PathItem{
-				Post: &openapi3.Operation{},
-			},
-			"/get-test-path": &openapi3.PathItem{
-				Get: &openapi3.Operation{},
-			},
-			"/delete-test-path": &openapi3.PathItem{
-				Delete: &openapi3.Operation{},
-			},
-		},
-	}
+	spec := &openapi3.T{}
+	spec.Paths = openapi3.NewPaths()
+	spec.Paths.Set("/put-test-path", &openapi3.PathItem{
+		Put: &openapi3.Operation{},
+	})
+	spec.Paths.Set("/post-test-path", &openapi3.PathItem{
+		Post: &openapi3.Operation{},
+	})
+	spec.Paths.Set("/get-test-path", &openapi3.PathItem{
+		Get: &openapi3.Operation{},
+	})
+	spec.Paths.Set("/delete-test-path", &openapi3.PathItem{
+		Delete: &openapi3.Operation{},
+	})
 
 	// Test extracting paths that require the "POST" verb
 	allPaths := ExtractAllPaths(spec)
