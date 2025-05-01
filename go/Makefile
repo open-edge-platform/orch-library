@@ -17,7 +17,7 @@ all: generate build lint test
 
 # GO variables
 GOARCH	:= $(shell go env GOARCH)
-GOCMD   := GOPRIVATE="github.com/open-edge-platform/*" go
+GOCMD   := go
 
 
 go-tidy: ## Run go mod tidy
@@ -32,8 +32,10 @@ go-lint: $(OUT_DIR) ## Run go lint
 
 build: go-tidy go-build
 
+go-fmt: ## Run go fmt against code.
+	go fmt ./...
 
-go-build:
+go-build: go-fmt
 	@# Help: Runs build stage
 	@echo "---MAKEFILE BUILD---"
 	$(GOCMD) build $(PKG)/pkg/...
