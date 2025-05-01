@@ -17,7 +17,7 @@ var (
 	// Custom collector
 	MeasurementReg = prometheus.NewRegistry()
 
-	EventTimestampGuage = prometheus.NewGaugeVec(
+	EventTimestampGauge = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "event_timestamp",
 			Help: "Timestamp of occurrence of event",
