@@ -32,8 +32,10 @@ go-lint: $(OUT_DIR) ## Run go lint
 
 build: go-tidy go-build
 
+go-fmt: ## Run go fmt against code.
+	go fmt ./...
 
-go-build:
+go-build: go-fmt
 	@# Help: Runs build stage
 	@echo "---MAKEFILE BUILD---"
 	$(GOCMD) build $(PKG)/pkg/...

@@ -5,10 +5,10 @@
 package metrics
 
 import (
-	"time"
+	"github.com/open-edge-platform/app-orch-deployment/app-deployment-manager/api/v1beta1"
 	"github.com/open-edge-platform/orch-library/go/dazl"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/open-edge-platform/app-orch-deployment/app-deployment-manager/api/v1beta1"
+	"time"
 )
 
 var log = dazl.GetPackageLogger()
@@ -31,7 +31,7 @@ var (
 			Help: "Time difference between first and last timestamp",
 		},
 		[]string{"projectID", "deploymentID", "displayName", "firstPart", "firstEvent",
-        "lastPart", "lastEvent"},
+			"lastPart", "lastEvent"},
 	)
 
 	// Map to store timestamps for each deployment
