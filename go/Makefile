@@ -17,7 +17,6 @@ all: generate build lint test
 
 # GO variables
 GOARCH	:= $(shell go env GOARCH)
-#GOCMD   := GOPRIVATE="github.com/open-edge-platform/*" go
 GOCMD   := go
 
 

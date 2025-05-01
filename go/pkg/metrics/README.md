@@ -5,10 +5,10 @@
 
 # Metrics Library for time measurement
 
-We have introduced two metrics which are used by ADM:
+We have introduced two metrics:
 1. **event_timestamp**: This metric records the timestamp of any event occurring.
-    For E.g. we have used this metric to record timestamp of the following
-    events in ADM :
+    For E.g. We have used this metric to record timestamp of the following
+    events in app-deployment-manager :
     1. Start of Deployment custom resource creation.
     2. Start of Gitrepo Resource creation.
     3. Start of DeploymentCluster custom resource creation.
