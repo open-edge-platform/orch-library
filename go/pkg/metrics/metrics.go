@@ -52,12 +52,12 @@ func RecordTimestamp(projectID, deploymentID, displayName, part, event string) {
 	if part == string(v1beta1.Running) {
 		if _, exists := Timestamps[deploymentID][key]; !exists {
 			Timestamps[deploymentID][key] = timestamp
-			EventTimestampGuage.WithLabelValues(projectID, deploymentID, displayName, part, event).Set(timestamp)
+			EventTimestampGauge.WithLabelValues(projectID, deploymentID, displayName, part, event).Set(timestamp)
 			log.Infof("write timestamp for changing to running state  %s, %s, %s", projectID, deploymentID, event)
 		}
 	} else {
 		Timestamps[deploymentID][key] = timestamp
-		EventTimestampGuage.WithLabelValues(projectID, deploymentID, displayName, part, event).Set(timestamp)
+		EventTimestampGauge.WithLabelValues(projectID, deploymentID, displayName, part, event).Set(timestamp)
 	}
 }
 
@@ -81,5 +81,5 @@ func CalculateTimeDifference(projectID, deploymentID, displayName, firstPart, fi
 func init() {
 	// Register custom metrics with prometheus registry
 	log.Infof("metrics server init \n")
-	MeasurementReg.MustRegister(EventTimestampGuage, EventTimeDifferenceGauge)
+	MeasurementReg.MustRegister(EventTimestampGauge, EventTimeDifferenceGauge)
 }
