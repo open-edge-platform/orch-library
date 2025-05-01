@@ -20,7 +20,7 @@ var (
 	EventTimestampGuage = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "event_timestamp",
-			Help: "Timestamp of occurunce of event",
+			Help: "Timestamp of occurrence of event",
 		},
 		[]string{"projectID", "deploymentID", "displayName", "part", "event"},
 	)
