@@ -43,4 +43,5 @@ jobs:
       run_artifact: false
       prefix_tag_separator: "/"
       project_folder: "go/dazl/zap"
-    secrets: inherit
+    secrets:  # zizmor: ignore[secrets-inherit]
+      inherit
