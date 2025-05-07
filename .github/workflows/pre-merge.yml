@@ -29,11 +29,12 @@ jobs:
         id: discover-changes
         uses: open-edge-platform/orch-ci/discover-changed-subfolders@4c94cdd01e58beab5f822f1eeb0439a523018a55 # v0.1.5
       - name: "Filter Out Unwanted Changed Subfolders"
+        env:
+          changed_projects: ${{ steps.discover-changes.outputs.changed_projects }}
         id: filter-changes
         run: |
           folders_to_remove='[".github",".reuse","LICENSES"]'
           
-          changed_projects='${{ steps.discover-changes.outputs.changed_projects }}'
           filtered_projects=$(echo "$changed_projects" | jq -cr --argjson folders_to_remove "$folders_to_remove" 'map(select(. as $item | $folders_to_remove | index($item) | not))')
           echo "filtered_projects=$filtered_projects" >> $GITHUB_OUTPUT
   pre-merge-pipeline:
@@ -56,15 +57,15 @@ jobs:
       run_artifact: false
       prefix_tag_separator: "/"
       project_folder: ${{ matrix.project_folder }}
-    secrets: inherit
   final-check:
     runs-on: ubuntu-latest
     if: ${{ always() }}
     needs: [pre-merge-pipeline]
     steps:
       - name: Final Status Check
+        env:
+          pre_merge_pipeline_result: ${{ needs.pre-merge-pipeline.result }}
         run: |
-          pre_merge_pipeline_result="${{ needs.pre-merge-pipeline.result }}"
           
           echo "Pre-merge pipeline result: $pre_merge_pipeline_result"
 
