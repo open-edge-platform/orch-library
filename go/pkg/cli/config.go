@@ -5,11 +5,35 @@ package cli
 
 import (
 	"fmt"
+	"os"
+
 	"github.com/mitchellh/go-homedir"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"os"
 )
+
+const setConfigExamples = `# Set configuration
+orch-cli set <key> <value>
+
+Supported keys:
+orch-cli set project <project name>
+orch-cli set api-endpoint https://api.<CLUSTER_FQDN>
+`
+
+const getConfigExamples = `# Get current configuration
+orch-cli get <key> <value>
+
+Supported keys:
+orch-cli get project
+orch-cli get api-endpoint
+`
+const deleteConfigExamples = `# Delete current configuration
+orch-cli delete <key> <value>
+
+Supported keys:
+orch-cli delete project
+orch-cli delete api-endpoint
+`
 
 const (
 	addressKey = "service-address"
@@ -108,6 +132,7 @@ func getConfigGetCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:       "get <key>",
 		Short:     "Get CLI option value",
+		Example:   getConfigExamples,
 		Args:      cobra.ExactArgs(1),
 		ValidArgs: configOptions,
 		RunE:      runConfigGetCommand,
@@ -124,6 +149,7 @@ func getConfigSetCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:       "set <key> <value>",
 		Short:     "Set CLI option value",
+		Example:   setConfigExamples,
 		Args:      cobra.ExactArgs(2),
 		ValidArgs: configOptions,
 		RunE:      runConfigSetCommand,
@@ -146,6 +172,7 @@ func getConfigDeleteCommand() *cobra.Command {
 		Use:       "delete <key>",
 		Short:     "Delete CLI option value",
 		Args:      cobra.ExactArgs(1),
+		Example:   deleteConfigExamples,
 		ValidArgs: configOptions,
 		RunE:      runConfigDeleteCommand,
 	}
