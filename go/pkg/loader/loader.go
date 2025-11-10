@@ -102,7 +102,6 @@ func (l *Loader) LoadResources(ctx context.Context, accessToken string, paths []
 	client := &http.Client{}
 	var sessionID *string
 	var allErrors []string
-	totalFiles := len(filesToUpload)
 
 	for i, file := range filesToUpload {
 		// Create CatalogV3Upload request body
@@ -111,9 +110,8 @@ func (l *Loader) LoadResources(ctx context.Context, accessToken string, paths []
 			FileName: file.fileName,
 		}
 
-		// Determine if this is the last upload
-		isLastUpload := (i == totalFiles-1)
-		lastUpload := isLastUpload
+		// Never set lastUpload=true during file uploads - we'll send a separate commit request
+		lastUpload := false
 
 		// Build the full request structure
 		uploadRequest := CatalogV3UploadRequest{
@@ -165,6 +163,47 @@ func (l *Loader) LoadResources(ctx context.Context, accessToken string, paths []
 		// Collect any error messages
 		if uploadResp.ErrorMessages != nil && len(*uploadResp.ErrorMessages) > 0 {
 			allErrors = append(allErrors, *uploadResp.ErrorMessages...)
+		}
+	}
+
+	// Send a final commit request with lastUpload=true and sessionID to trigger backend processing
+	if sessionID != nil {
+		lastUpload := true
+		commitRequest := CatalogV3UploadRequest{
+			SessionID:  sessionID,
+			LastUpload: &lastUpload,
+		}
+
+		jsonData, err := json.Marshal(commitRequest)
+		if err != nil {
+			return err
+		}
+
+		r, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("Authorization", fmt.Sprintf("Bearer %s", accessToken))
+
+		resp, err := client.Do(r)
+		if err != nil {
+			return err
+		}
+
+		// Parse final commit response
+		var commitResp CatalogV3UploadResponse
+		body, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+
+		if resp.StatusCode != 200 && resp.StatusCode != 201 {
+			return errors.NewInvalid("commit failed: %d: %s", resp.StatusCode, string(body))
+		}
+
+		if err := json.Unmarshal(body, &commitResp); err != nil {
+			return errors.NewInvalid("failed to parse commit response: %v", err)
+		}
+
+		// Collect any final error messages from commit
+		if commitResp.ErrorMessages != nil && len(*commitResp.ErrorMessages) > 0 {
+			allErrors = append(allErrors, *commitResp.ErrorMessages...)
 		}
 	}
 
