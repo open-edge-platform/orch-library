@@ -8,3 +8,6 @@
 
 # Everything requires team review by default
 * @hyunsun @krishnajs @scottmbaker @guptagunjan @krishnajs @nathsudi @soniabha-intc @palade @sys-devops-approve
+
+# CI files
+.github/ @adimoft @daveroge @shanedonohue @manilk1x
