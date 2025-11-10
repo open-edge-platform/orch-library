@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"github.com/open-edge-platform/orch-library/go/pkg/errors"
 	"io"
-	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -29,12 +28,30 @@ func NewLoader(catalogEndpoint string, projectName string) *Loader {
 	return &Loader{catalogEndpoint: strings.TrimSuffix(catalogEndpoint, "/"), projectName: projectName}
 }
 
-// LoadResources loads the specified files or directories as catalog resources using the upload API
-func (l *Loader) LoadResources(ctx context.Context, accessToken string, paths []string) error {
-	url := fmt.Sprintf("%s/v3/projects/%s/catalog/upload", l.catalogEndpoint, l.projectName)
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
+// CatalogV3Upload represents the request structure for uploading a single catalog file
+type CatalogV3Upload struct {
+	Artifact []byte `json:"artifact"`
+	FileName string `json:"fileName"`
+}
 
+// CatalogV3UploadResponse represents the response from catalog upload API
+type CatalogV3UploadResponse struct {
+	ErrorMessages *[]string `json:"errorMessages,omitempty"`
+	SessionId     string    `json:"sessionId"`
+	UploadNumber  int       `json:"uploadNumber"`
+}
+
+// LoadResources loads the specified files or directories as catalog resources using the V3 API
+func (l *Loader) LoadResources(ctx context.Context, accessToken string, paths []string) error {
+	url := fmt.Sprintf("%s/v3/projects/%s/catalog/uploads", l.catalogEndpoint, l.projectName)
+	
+	// Collect all YAML files to upload
+	type fileToUpload struct {
+		content  []byte
+		fileName string
+	}
+	var filesToUpload []fileToUpload
+	
 	for _, path := range paths {
 		isDirectory, err := IsDir(path)
 		if err != nil {
@@ -45,72 +62,90 @@ func (l *Loader) LoadResources(ctx context.Context, accessToken string, paths []
 			dirPath := path
 			err = filepath.WalkDir(dirPath, func(path string, d os.DirEntry, _ error) error {
 				if !d.IsDir() && strings.HasSuffix(path, ".yaml") {
-					return addFile(writer, path, dirPath)
+					content, err := os.ReadFile(path)
+					if err != nil {
+						return err
+					}
+					fileName := strings.TrimPrefix(strings.TrimPrefix(path, dirPath), "/")
+					filesToUpload = append(filesToUpload, fileToUpload{
+						content:  content,
+						fileName: fileName,
+					})
 				}
 				return nil
 			})
+			if err != nil {
+				return err
+			}
 		} else {
-			err = addFile(writer, path, "")
+			content, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			fileName := filepath.Base(path)
+			filesToUpload = append(filesToUpload, fileToUpload{
+				content:  content,
+				fileName: fileName,
+			})
 		}
+	}
+
+	// Upload each file individually using CatalogV3Upload format
+	client := &http.Client{}
+	var sessionId string
+	var allErrors []string
+	
+	for _, file := range filesToUpload {
+		// Create CatalogV3Upload request body
+		upload := CatalogV3Upload{
+			Artifact: file.content,
+			FileName: file.fileName,
+		}
+		
+		jsonData, err := json.Marshal(upload)
 		if err != nil {
 			return err
 		}
-	}
 
-	_ = writer.Close()
+		r, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("Authorization", fmt.Sprintf("Bearer %s", accessToken))
 
-	r, _ := http.NewRequestWithContext(ctx, "POST", url, body)
-	r.Header.Add("Content-Type", writer.FormDataContentType())
-	r.Header.Set("Authorization", fmt.Sprintf("Bearer %s", accessToken))
-
-	client := &http.Client{}
-	if resp, err := client.Do(r); err != nil {
-		return err
-	} else if resp.StatusCode != 200 {
-		messages := extractMessages(resp)
-		return errors.NewInvalid("upload failed: %d: %s", resp.StatusCode, messages)
-	}
-	return nil
-}
-
-func addFile(writer *multipart.Writer, path string, dirPath string) error {
-	file, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	part, _ := writer.CreateFormFile("files", strings.TrimPrefix(strings.TrimPrefix(path, dirPath), "/"))
-	_, err = io.Copy(part, file)
-	if err != nil {
-		return err
-	}
-	return file.Close()
-}
-
-func extractMessages(resp *http.Response) string {
-	buf := new(strings.Builder)
-	_, _ = io.Copy(buf, resp.Body)
-	jsonString := buf.String()
-	type ResponsesJSON struct {
-		Responses []struct {
-			SessionID     string   `json:"sessionId"`
-			UploadNumber  int      `json:"uploadNumber"`
-			ErrorMessages []string `json:"errorMessages"`
-		} `json:"responses"`
-	}
-	var responses ResponsesJSON
-	_ = json.Unmarshal([]byte(jsonString), &responses)
-
-	var result = ""
-	for _, response := range responses.Responses {
-		errorMessages := response.ErrorMessages
-		if len(errorMessages) != 0 {
-			for _, message := range errorMessages {
-				result = result + "\n" + message
-			}
+		resp, err := client.Do(r)
+		if err != nil {
+			return err
+		}
+		
+		// Parse response
+		var uploadResp CatalogV3UploadResponse
+		body, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		
+		if resp.StatusCode != 200 && resp.StatusCode != 201 {
+			return errors.NewInvalid("upload failed for %s: %d: %s", file.fileName, resp.StatusCode, string(body))
+		}
+		
+		if err := json.Unmarshal(body, &uploadResp); err != nil {
+			return errors.NewInvalid("failed to parse upload response for %s: %v", file.fileName, err)
+		}
+		
+		// Store session ID from first upload
+		if sessionId == "" {
+			sessionId = uploadResp.SessionId
+		}
+		
+		// Collect any error messages
+		if uploadResp.ErrorMessages != nil && len(*uploadResp.ErrorMessages) > 0 {
+			allErrors = append(allErrors, *uploadResp.ErrorMessages...)
 		}
 	}
-
-	return result
+	
+	// Return error if there were any error messages
+	if len(allErrors) > 0 {
+		return errors.NewInvalid("upload completed with errors: %s", strings.Join(allErrors, "\n"))
+	}
+	
+	return nil
 }
 
 // IsDir Returns true if the given path is a directory
