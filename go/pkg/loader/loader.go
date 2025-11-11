@@ -9,12 +9,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/open-edge-platform/orch-library/go/pkg/errors"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/open-edge-platform/orch-library/go/pkg/errors"
 )
 
 // Loader implements the functions used to load YAML files
@@ -28,30 +30,20 @@ func NewLoader(catalogEndpoint string, projectName string) *Loader {
 	return &Loader{catalogEndpoint: strings.TrimSuffix(catalogEndpoint, "/"), projectName: projectName}
 }
 
-// CatalogV3Upload represents the upload artifact structure
-type CatalogV3Upload struct {
-	Artifact []byte `json:"artifact"`
-	FileName string `json:"fileName"`
+// UploadResponse represents the response from the upload API
+type UploadResponse struct {
+	Responses []struct {
+		SessionID     string   `json:"sessionId"`
+		UploadNumber  int      `json:"uploadNumber"`
+		ErrorMessages []string `json:"errorMessages"`
+	} `json:"responses"`
 }
 
-// CatalogV3UploadRequest represents the full request structure for catalog upload API
-type CatalogV3UploadRequest struct {
-	Upload       *CatalogV3Upload `json:"upload,omitempty"`
-	SessionID    *string          `json:"sessionId,omitempty"`
-	LastUpload   *bool            `json:"lastUpload,omitempty"`
-	UploadNumber *int             `json:"uploadNumber,omitempty"`
-}
-
-// CatalogV3UploadResponse represents the response from catalog upload API
-type CatalogV3UploadResponse struct {
-	ErrorMessages *[]string `json:"errorMessages,omitempty"`
-	SessionID     string    `json:"sessionId"`
-	UploadNumber  int       `json:"uploadNumber"`
-}
-
-// LoadResources loads the specified files or directories as catalog resources using the V3 API
+// LoadResources loads the specified files or directories as catalog resources using multipart/form-data
 func (l *Loader) LoadResources(ctx context.Context, accessToken string, paths []string) error {
-	url := fmt.Sprintf("%s/v3/projects/%s/catalog/uploads", l.catalogEndpoint, l.projectName)
+	// Use the correct endpoint: /v3/projects/{project}/catalog/upload (singular, not plural!)
+	// This matches what the UI uses and expects multipart/form-data format
+	url := fmt.Sprintf("%s/v3/projects/%s/catalog/upload", l.catalogEndpoint, l.projectName)
 
 	// Collect all YAML files to upload
 	type fileToUpload struct {
@@ -98,119 +90,75 @@ func (l *Loader) LoadResources(ctx context.Context, accessToken string, paths []
 		}
 	}
 
-	// Upload each file individually using CatalogV3Upload format
+	if len(filesToUpload) == 0 {
+		return errors.NewInvalid("no YAML files found to upload")
+	}
+
+	// Create multipart form with all files
+	// The backend expects field name "files" (not "file" or "upload")
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	for _, file := range filesToUpload {
+		part, err := writer.CreateFormFile("files", file.fileName)
+		if err != nil {
+			return errors.NewInvalid("failed to create form file for %s: %v", file.fileName, err)
+		}
+		if _, err := part.Write(file.content); err != nil {
+			return errors.NewInvalid("failed to write file content for %s: %v", file.fileName, err)
+		}
+	}
+
+	if err := writer.Close(); err != nil {
+		return errors.NewInvalid("failed to close multipart writer: %v", err)
+	}
+
+	// Create HTTP request
+	req, err := http.NewRequestWithContext(ctx, "POST", url, body)
+	if err != nil {
+		return errors.NewInvalid("failed to create HTTP request: %v", err)
+	}
+
+	// Set required headers
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", accessToken))
+
+	// Send request
 	client := &http.Client{}
-	var sessionID *string
+	resp, err := client.Do(req)
+	if err != nil {
+		return errors.NewInvalid("upload request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Read response body
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return errors.NewInvalid("failed to read response body: %v", err)
+	}
+
+	// Check response status
+	if resp.StatusCode != http.StatusOK {
+		return errors.NewInvalid("upload failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	// Parse response
+	var uploadResp UploadResponse
+	if err := json.Unmarshal(bodyBytes, &uploadResp); err != nil {
+		// If we can't parse the response but status was 200, consider it success
+		return nil
+	}
+
+	// Check for errors in the response
 	var allErrors []string
-
-	for i, file := range filesToUpload {
-		// Create CatalogV3Upload request body
-		upload := CatalogV3Upload{
-			Artifact: file.content,
-			FileName: file.fileName,
-		}
-
-		// Never set lastUpload=true during file uploads - we'll send a separate commit request
-		lastUpload := false
-
-		// Build the full request structure
-		uploadRequest := CatalogV3UploadRequest{
-			Upload:     &upload,
-			LastUpload: &lastUpload,
-		}
-
-		// Add sessionId for all uploads after the first one
-		if sessionID != nil {
-			uploadRequest.SessionID = sessionID
-		}
-
-		// Add upload number (1-indexed)
-		uploadNum := i + 1
-		uploadRequest.UploadNumber = &uploadNum
-
-		jsonData, err := json.Marshal(uploadRequest)
-		if err != nil {
-			return err
-		}
-
-		r, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
-		r.Header.Set("Content-Type", "application/json")
-		r.Header.Set("Authorization", fmt.Sprintf("Bearer %s", accessToken))
-
-		resp, err := client.Do(r)
-		if err != nil {
-			return err
-		}
-
-		// Parse response
-		var uploadResp CatalogV3UploadResponse
-		body, _ := io.ReadAll(resp.Body)
-		_ = resp.Body.Close()
-
-		if resp.StatusCode != 200 && resp.StatusCode != 201 {
-			return errors.NewInvalid("upload failed for %s: %d: %s", file.fileName, resp.StatusCode, string(body))
-		}
-
-		if err := json.Unmarshal(body, &uploadResp); err != nil {
-			return errors.NewInvalid("failed to parse upload response for %s: %v", file.fileName, err)
-		}
-
-		// Update sessionID after EVERY response, not just the first one
-		// The backend returns a new sessionID with each response, and we must use the latest one
-		if uploadResp.SessionID != "" {
-			sessionID = &uploadResp.SessionID
-		}
-
-		// Collect any error messages
-		if uploadResp.ErrorMessages != nil && len(*uploadResp.ErrorMessages) > 0 {
-			allErrors = append(allErrors, *uploadResp.ErrorMessages...)
+	for _, r := range uploadResp.Responses {
+		if len(r.ErrorMessages) > 0 {
+			allErrors = append(allErrors, r.ErrorMessages...)
 		}
 	}
 
-	// Send a final commit request with lastUpload=true and sessionID to trigger backend processing
-	if sessionID != nil {
-		lastUpload := true
-		commitRequest := CatalogV3UploadRequest{
-			SessionID:  sessionID,
-			LastUpload: &lastUpload,
-		}
-
-		jsonData, err := json.Marshal(commitRequest)
-		if err != nil {
-			return err
-		}
-
-		r, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
-		r.Header.Set("Content-Type", "application/json")
-		r.Header.Set("Authorization", fmt.Sprintf("Bearer %s", accessToken))
-
-		resp, err := client.Do(r)
-		if err != nil {
-			return err
-		}
-
-		// Parse final commit response
-		var commitResp CatalogV3UploadResponse
-		body, _ := io.ReadAll(resp.Body)
-		_ = resp.Body.Close()
-
-		if resp.StatusCode != 200 && resp.StatusCode != 201 {
-			return errors.NewInvalid("commit failed: %d: %s", resp.StatusCode, string(body))
-		}
-
-		if err := json.Unmarshal(body, &commitResp); err != nil {
-			return errors.NewInvalid("failed to parse commit response: %v", err)
-		}
-
-		// Collect any final error messages from commit
-		if commitResp.ErrorMessages != nil && len(*commitResp.ErrorMessages) > 0 {
-			allErrors = append(allErrors, *commitResp.ErrorMessages...)
-		}
-	}
-
-	// Return error if there were any error messages
 	if len(allErrors) > 0 {
-		return errors.NewInvalid("upload completed with errors: %s", strings.Join(allErrors, "\n"))
+		return errors.NewInvalid("upload completed with errors:\n%s", strings.Join(allErrors, "\n"))
 	}
 
 	return nil
@@ -219,10 +167,11 @@ func (l *Loader) LoadResources(ctx context.Context, accessToken string, paths []
 // IsDir Returns true if the given path is a directory
 func IsDir(path string) (bool, error) {
 	file, err := os.Open(path)
-	defer func() { _ = file.Close() }()
 	if err != nil {
 		return false, err
 	}
+	defer func() { _ = file.Close() }()
+
 	stat, err := file.Stat()
 	if err != nil {
 		return false, err
