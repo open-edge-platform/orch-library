@@ -155,8 +155,9 @@ func (l *Loader) LoadResources(ctx context.Context, accessToken string, paths []
 			return errors.NewInvalid("failed to parse upload response for %s: %v", file.fileName, err)
 		}
 
-		// Store session ID from first upload for subsequent requests
-		if sessionID == nil && uploadResp.SessionID != "" {
+		// Update sessionID after EVERY response, not just the first one
+		// The backend returns a new sessionID with each response, and we must use the latest one
+		if uploadResp.SessionID != "" {
 			sessionID = &uploadResp.SessionID
 		}
 
