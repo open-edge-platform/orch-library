@@ -2,8 +2,181 @@
 // SPDX-License-Identifier: Apache-2.0
 package auth
 
+import (
+	"fmt"
+	"regexp"
+	"strings"
+
+	"github.com/golang-jwt/jwt/v5"
+)
+
 // Project represents a project within the authentication system - the tenant-aware authentication
 
-// ExtractProjectIDFromJWT extracts the project ID from the given JWT token
+const (
+	roleProjectIDSeparator = "_"
+	uuidPattern            = "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
 
-// ValidateProjectAccess checks if the ProjectID is accessible under the given user's tenant
+var uuidRegex = regexp.MustCompile(uuidPattern)
+
+// ExtractProjectIDFromJWT extracts the project UUID from JWT token roles
+func ExtractProjectIDFromJWT(authHeader string) (string, error) {
+	if authHeader == "" {
+		return "", fmt.Errorf("missing authorization header")
+	}
+
+	parts := strings.Split(authHeader, " ")
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+		return "", fmt.Errorf("invalid authorization header format")
+	}
+
+	tokenString := parts[1]
+
+	// Parse token without verification to extract claims
+	token, _, err := jwt.NewParser().ParseUnverified(tokenString, jwt.MapClaims{})
+	if err != nil {
+		return "", fmt.Errorf("failed to parse JWT: %w", err)
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return "", fmt.Errorf("invalid JWT claims")
+	}
+
+	// Extract roles from realm_access.roles
+	realmAccess, ok := claims["realm_access"].(map[string]interface{})
+	if !ok {
+		return "", fmt.Errorf("realm_access not found in JWT")
+	}
+
+	rolesInterface, ok := realmAccess["roles"].([]interface{})
+	if !ok {
+		return "", fmt.Errorf("roles not found in realm_access")
+	}
+
+	// Extract project UUIDs from roles
+	projectIDs := make(map[string]bool)
+	for _, roleInterface := range rolesInterface {
+		role, ok := roleInterface.(string)
+		if !ok {
+			continue
+		}
+
+		// Roles with project context follow pattern: {projectUUID}_{roleName}
+		if strings.Contains(role, roleProjectIDSeparator) {
+			parts := strings.Split(role, roleProjectIDSeparator)
+			if len(parts) > 0 {
+				potentialUUID := parts[0]
+				if uuidRegex.MatchString(potentialUUID) {
+					projectIDs[potentialUUID] = true
+				}
+			}
+		}
+	}
+
+	if len(projectIDs) == 0 {
+		return "", fmt.Errorf("no project ID found in JWT roles")
+	}
+
+	// If user has multiple projects, use the first one found
+	var projectID string
+	for id := range projectIDs {
+		projectID = id
+		break
+	}
+
+	return projectID, nil
+}
+
+// ExtractAllProjectIDsFromJWT extracts all project UUIDs from JWT token roles
+// Returns a map of project IDs for quick lookup
+func ExtractAllProjectIDsFromJWT(authHeader string) (map[string]bool, error) {
+	if authHeader == "" {
+		return nil, fmt.Errorf("missing authorization header")
+	}
+
+	parts := strings.Split(authHeader, " ")
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+		return nil, fmt.Errorf("invalid authorization header format")
+	}
+
+	tokenString := parts[1]
+
+	// Parse token without verification to extract claims
+	token, _, err := jwt.NewParser().ParseUnverified(tokenString, jwt.MapClaims{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse JWT: %w", err)
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return nil, fmt.Errorf("invalid JWT claims")
+	}
+
+	// Extract roles from realm_access.roles
+	realmAccess, ok := claims["realm_access"].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("realm_access not found in JWT")
+	}
+
+	rolesInterface, ok := realmAccess["roles"].([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("roles not found in realm_access")
+	}
+
+	// Extract all project UUIDs from roles
+	projectIDs := make(map[string]bool)
+	for _, roleInterface := range rolesInterface {
+		role, ok := roleInterface.(string)
+		if !ok {
+			continue
+		}
+
+		// Roles with project context follow pattern: {projectUUID}_{roleName}
+		if strings.Contains(role, roleProjectIDSeparator) {
+			parts := strings.Split(role, roleProjectIDSeparator)
+			if len(parts) > 0 {
+				potentialUUID := parts[0]
+				if isValidUUID(potentialUUID) {
+					projectIDs[potentialUUID] = true
+				}
+			}
+		}
+	}
+
+	if len(projectIDs) == 0 {
+		return nil, fmt.Errorf("no project IDs found in JWT roles")
+	}
+
+	return projectIDs, nil
+}
+
+// ValidateProjectAccess checks if the ProjectID is accessible under the given user's JWT token.
+// It extracts all project UUIDs from the JWT roles and verifies that projectID is among them.
+// This prevents users from accessing projects they don't have permissions for.
+func ValidateProjectAccess(authHeader string, projectID string) error {
+	if authHeader == "" {
+		return fmt.Errorf("missing authorization header")
+	}
+
+	if projectID == "" {
+		return fmt.Errorf("missing project ID")
+	}
+
+	// Extract all project IDs from JWT token
+	projectIDs, err := ExtractAllProjectIDsFromJWT(authHeader)
+	if err != nil {
+		return fmt.Errorf("failed to extract projects from JWT: %w", err)
+	}
+
+	// Check if the requested project ID is in the user's accessible projects
+	if _, exists := projectIDs[projectID]; !exists {
+		return fmt.Errorf("user does not have access to project: %s", projectID)
+	}
+
+	return nil
+}
+
+func isValidUUID(uuid string) bool {
+	return uuidRegex.MatchString(uuid)
+}
