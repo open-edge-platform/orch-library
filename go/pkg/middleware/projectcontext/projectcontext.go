@@ -71,30 +71,93 @@ func ResolveProjectUUID(ctx context.Context, projectName string, authHeader stri
 	return "", fmt.Errorf("project not found: %s", projectName)
 }
 
-// InjectActiveProjectID is a middleware that resolves and injects the active project ID
-// This can be used with Echo or other HTTP frameworks
-func InjectActiveProjectID(nexusAPIURL string, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get(ActiveProjectIDHeader) == "" {
-			authHeader := r.Header.Get("Authorization")
+// ProjectResolverConfig holds configuration for project resolution and validation
+type ProjectResolverConfig struct {
+	NexusAPIURL           string
+	ErrorOnMissingProject bool
+}
 
-			// Try to extract project name from URL path
-			projectName := ExtractProjectNameFromPath(r.URL.Path)
-			if projectName != "" {
-				// New-style path: /v1/projects/{projectName}/...
-				projectUUID, err := ResolveProjectUUID(r.Context(), projectName, authHeader, nexusAPIURL)
-				if err == nil && projectUUID != "" {
-					r.Header.Set(ActiveProjectIDHeader, projectUUID)
+// ResolveAndValidateProjectID is a framework-agnostic helper that resolves and validates
+// project ID from request path and auth header. This includes security validation.
+//
+// It performs:
+// 1. Extract project name from path
+// 2. Resolve project UUID via Nexus API
+// 3. Validate user has access to the project
+// 4. Fall back to JWT extraction for old-style paths
+//
+// Returns (projectUUID, error) - error is non-nil only if ErrorOnMissingProject is true
+// and the project cannot be resolved or user doesn't have access.
+func ResolveAndValidateProjectID(ctx context.Context, path string, authHeader string, existingProjectID string, config ProjectResolverConfig) (string, error) {
+	if existingProjectID != "" {
+		return existingProjectID, nil // Already set, no need to resolve
+	}
+
+	// Try to extract project name from URL path (new multi-tenant paths)
+	projectName := ExtractProjectNameFromPath(path)
+
+	if projectName != "" {
+		// New-style path: /v1/projects/{projectName}/...
+		projectUUID, err := ResolveProjectUUID(ctx, projectName, authHeader, config.NexusAPIURL)
+		if err != nil {
+			if config.ErrorOnMissingProject {
+				return "", fmt.Errorf("failed to resolve project: %w", err)
+			}
+			return "", nil
+		}
+
+		if projectUUID != "" {
+			// Validate user has access to this project
+			if err := auth.ValidateProjectAccess(authHeader, projectUUID); err != nil {
+				if config.ErrorOnMissingProject {
+					return "", fmt.Errorf("access denied to project %s: %w", projectName, err)
 				}
-			} else if authHeader != "" {
-				// Old-style path: extract from JWT
-				projectUUID, err := auth.ExtractProjectIDFromJWT(authHeader)
-				if err == nil && projectUUID != "" {
+				return "", nil
+			}
+			return projectUUID, nil
+		}
+	} else if authHeader != "" {
+		// Old-style path: /edge-infra.orchestrator.apis/v2/...
+		// Extract project UUID from JWT token roles
+		projectUUID, _ := auth.ExtractProjectIDFromJWT(authHeader)
+		return projectUUID, nil
+	}
+
+	return "", nil
+}
+
+// InjectActiveProjectID is a standard http.Handler middleware that resolves and injects
+// the active project ID with security validation.
+func InjectActiveProjectID(nexusAPIURL string, errorOnMissing bool) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get(ActiveProjectIDHeader) == "" {
+				authHeader := r.Header.Get("Authorization")
+
+				// Use the helper function with validation
+				projectUUID, err := ResolveAndValidateProjectID(
+					r.Context(),
+					r.URL.Path,
+					authHeader,
+					"",
+					ProjectResolverConfig{
+						NexusAPIURL:           nexusAPIURL,
+						ErrorOnMissingProject: errorOnMissing,
+					},
+				)
+
+				if err != nil && errorOnMissing {
+					// Return 403 for unauthorized access
+					http.Error(w, "Access denied or project not found", http.StatusForbidden)
+					return
+				}
+
+				if projectUUID != "" {
 					r.Header.Set(ActiveProjectIDHeader, projectUUID)
 				}
 			}
-		}
 
-		next.ServeHTTP(w, r)
-	})
+			next.ServeHTTP(w, r)
+		})
+	}
 }
