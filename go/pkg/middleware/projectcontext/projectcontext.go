@@ -12,9 +12,12 @@ import (
 	"github.com/open-edge-platform/orch-library/go/pkg/auth"
 )
 
-const ActiveProjectIDHeader = "ActiveProjectID"
+const (
+	ActiveProjectIDHeader = "ActiveProjectID"
+	pathProjectPattern    = `^/v1/projects/([^/]+)/`
+)
 
-var projectPathRegex = regexp.MustCompile(`^/v1/projects/([^/]+)/`)
+var projectPathRegex = regexp.MustCompile(pathProjectPattern)
 
 // ExtractProjectNameFromPath extracts the project name from the given context
 func ExtractProjectNameFromPath(path string) string {
@@ -25,9 +28,9 @@ func ExtractProjectNameFromPath(path string) string {
 	return ""
 }
 
-// ResolveProjectUUID queries the Nexus API to resolve project UUID from project name
-func ResolveProjectUUID(ctx context.Context, projectName string, authHeader string, nexusAPIURL string) (string, error) {
-	reqURL := fmt.Sprintf("%s/v1/projects", nexusAPIURL)
+// ResolveProjectUUID queries the project service API to resolve project UUID from project name
+func ResolveProjectUUID(ctx context.Context, projectName string, authHeader string, projectServiceURL string) (string, error) {
+	reqURL := fmt.Sprintf("%s/v1/projects", projectServiceURL)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
@@ -73,16 +76,14 @@ func ResolveProjectUUID(ctx context.Context, projectName string, authHeader stri
 
 // ProjectResolverConfig holds configuration for project resolution and validation
 type ProjectResolverConfig struct {
-	NexusAPIURL           string
+	ProjectServiceURL     string
 	ErrorOnMissingProject bool
 }
 
 // ResolveAndValidateProjectID is a framework-agnostic helper that resolves and validates
-// project ID from request path and auth header. This includes security validation.
-//
-// It performs:
+// project ID from request path and auth header. It performs:
 // 1. Extract project name from path
-// 2. Resolve project UUID via Nexus API
+// 2. Resolve project UUID via project service (Nexus) API
 // 3. Validate user has access to the project
 // 4. Fall back to JWT extraction for old-style paths
 //
@@ -98,7 +99,7 @@ func ResolveAndValidateProjectID(ctx context.Context, path string, authHeader st
 
 	if projectName != "" {
 		// New-style path: /v1/projects/{projectName}/...
-		projectUUID, err := ResolveProjectUUID(ctx, projectName, authHeader, config.NexusAPIURL)
+		projectUUID, err := ResolveProjectUUID(ctx, projectName, authHeader, config.ProjectServiceURL)
 		if err != nil {
 			if config.ErrorOnMissingProject {
 				return "", fmt.Errorf("failed to resolve project: %w", err)
@@ -128,7 +129,7 @@ func ResolveAndValidateProjectID(ctx context.Context, path string, authHeader st
 
 // InjectActiveProjectID is a standard http.Handler middleware that resolves and injects
 // the active project ID with security validation.
-func InjectActiveProjectID(nexusAPIURL string, errorOnMissing bool) func(http.Handler) http.Handler {
+func InjectActiveProjectID(projectServiceURL string, errorOnMissing bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Header.Get(ActiveProjectIDHeader) == "" {
@@ -141,7 +142,7 @@ func InjectActiveProjectID(nexusAPIURL string, errorOnMissing bool) func(http.Ha
 					authHeader,
 					"",
 					ProjectResolverConfig{
-						NexusAPIURL:           nexusAPIURL,
+						ProjectServiceURL:     projectServiceURL,
 						ErrorOnMissingProject: errorOnMissing,
 					},
 				)
