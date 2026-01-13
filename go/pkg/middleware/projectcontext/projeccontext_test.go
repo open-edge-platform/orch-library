@@ -325,3 +325,168 @@ func TestResolveAndValidateProjectID(t *testing.T) {
 	}
 }
 
+func TestInjectActiveProjectID(t *testing.T) {
+	tests := []struct {
+		name              string
+		nexusAPIURL       string
+		errorOnMissing    bool
+		existingHeader    string
+		requestPath       string
+		authHeader        string
+		setupServer       func() *httptest.Server
+		expectedHeader    string
+		expectedStatus    int
+		expectHandlerCall bool
+	}{
+		{
+			name:              "skips resolution when header already set",
+			nexusAPIURL:       "http://localhost",
+			errorOnMissing:    false,
+			existingHeader:    "existing-uuid",
+			requestPath:       "/v1/projects/test/resources",
+			authHeader:        "Bearer token",
+			expectedHeader:    "existing-uuid",
+			expectedStatus:    http.StatusOK,
+			expectHandlerCall: true,
+		},
+		{
+			name:           "sets header on successful resolution",
+			errorOnMissing: false,
+			existingHeader: "",
+			requestPath:    "/v1/projects/test-project/resources",
+			authHeader:     bearerJWTWithProjectRole(t, "11111111-1111-1111-1111-111111111111"),
+			setupServer: func() *httptest.Server {
+				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(http.StatusOK)
+					json.NewEncoder(w).Encode([]struct {
+						Name   string `json:"name"`
+						Status struct {
+							ProjectStatus struct {
+								UID string `json:"uID"`
+							} `json:"projectStatus"`
+						} `json:"status"`
+					}{
+						{
+							Name: "test-project",
+							Status: struct {
+								ProjectStatus struct {
+									UID string `json:"uID"`
+								} `json:"projectStatus"`
+							}{
+								ProjectStatus: struct {
+									UID string `json:"uID"`
+								}{
+									UID: "11111111-1111-1111-1111-111111111111",
+								},
+							},
+						},
+					})
+				}))
+			},
+
+			expectedHeader:    "11111111-1111-1111-1111-111111111111",
+			expectedStatus:    http.StatusOK,
+			expectHandlerCall: true,
+		},
+		{
+			name: "continues without header when error on missing disabled",
+			// for old-style path + missing Authorization header, errorOnMissing=false
+            // the middleware must not block the request and must NOT inject ActiveProjectID,
+            // since it cannot resolve one.
+			errorOnMissing:    false,
+			existingHeader:    "",
+			requestPath:       "/edge-infra.orchestrator.apis/v2/hosts",
+			authHeader:        "",
+			expectedHeader:    "",
+			expectedStatus:    http.StatusOK,
+			expectHandlerCall: true,
+		},
+		{
+			name:              "sets header from JWT on old-style path",
+			errorOnMissing:    false,
+			existingHeader:    "",
+			requestPath:       "/edge-infra.orchestrator.apis/v2/hosts",
+			authHeader:        bearerJWTWithProjectRole(t, "33333333-3333-3333-3333-333333333333"),
+			expectedHeader:    "33333333-3333-3333-3333-333333333333",
+			expectedStatus:    http.StatusOK,
+			expectHandlerCall: true,
+		},
+		{
+			name:           "returns 403 when access validation fails in strict mode",
+			errorOnMissing: true,
+			existingHeader: "",
+			requestPath:    "/v1/projects/test-project/resources",
+			// JWT contains a *different* project UUID than the one resolved from the project service.
+			// This should cause auth.ValidateProjectAccess to fail.
+			authHeader: bearerJWTWithProjectRole(t, "44444444-4444-4444-4444-444444444444"),
+			setupServer: func() *httptest.Server {
+				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(http.StatusOK)
+					json.NewEncoder(w).Encode([]struct {
+						Name   string `json:"name"`
+						Status struct {
+							ProjectStatus struct {
+								UID string `json:"uID"`
+							} `json:"projectStatus"`
+						} `json:"status"`
+					}{
+						{
+							Name: "test-project",
+							Status: struct {
+								ProjectStatus struct {
+									UID string `json:"uID"`
+								} `json:"projectStatus"`
+							}{
+								ProjectStatus: struct {
+									UID string `json:"uID"`
+								}{
+									UID: "55555555-5555-5555-5555-555555555555",
+								},
+							},
+						},
+					})
+				}))
+			},
+			expectedHeader:    "",
+			expectedStatus:    http.StatusForbidden,
+			expectHandlerCall: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			nexusURL := tt.nexusAPIURL
+			if tt.setupServer != nil {
+				server := tt.setupServer()
+				defer server.Close()
+				nexusURL = server.URL
+			}
+
+			handlerCalled := false
+			var actualHeader string
+			nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				handlerCalled = true
+				actualHeader = r.Header.Get(ActiveProjectIDHeader)
+				w.WriteHeader(http.StatusOK)
+			})
+
+			handler := InjectActiveProjectID(nexusURL, tt.errorOnMissing)(nextHandler)
+
+			req := httptest.NewRequest(http.MethodGet, tt.requestPath, nil)
+			if tt.existingHeader != "" {
+				req.Header.Set(ActiveProjectIDHeader, tt.existingHeader)
+			}
+			if tt.authHeader != "" {
+				req.Header.Set("Authorization", tt.authHeader)
+			}
+
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, req)
+
+			assert.Equal(t, tt.expectedStatus, w.Code)
+			assert.Equal(t, tt.expectHandlerCall, handlerCalled)
+
+			assert.Equal(t, tt.expectedHeader, actualHeader)
+		})
+	}
+}
