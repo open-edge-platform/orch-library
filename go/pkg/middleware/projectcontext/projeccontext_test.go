@@ -44,7 +44,7 @@ func TestExtractProjectNameFromPath(t *testing.T) {
 			expected: "someproject",
 		},
 		{
-			name:     "valid project path with hyphen, underscore and nubmers",
+			name:     "valid project path with hyphen, underscore and numbers",
 			path:     "/v1/projects/some-test123_project/some/nested/path",
 			expected: "some-test123_project",
 		},
@@ -100,7 +100,7 @@ func TestResolveProjectUUID(t *testing.T) {
 			serverResponse: func(w http.ResponseWriter, r *http.Request) {
 				assert.Equal(t, "Bearer token123", r.Header.Get("Authorization"))
 				w.WriteHeader(http.StatusOK)
-				json.NewEncoder(w).Encode([]struct {
+				_ = json.NewEncoder(w).Encode([]struct {
 					Name   string `json:"name"`
 					Status struct {
 						ProjectStatus struct {
@@ -131,9 +131,9 @@ func TestResolveProjectUUID(t *testing.T) {
 			name:        "project not found",
 			projectName: "non-existent",
 			authHeader:  "Bearer token123",
-			serverResponse: func(w http.ResponseWriter, r *http.Request) {
+			serverResponse: func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusOK)
-				json.NewEncoder(w).Encode([]struct {
+				_ = json.NewEncoder(w).Encode([]struct {
 					Name   string `json:"name"`
 					Status struct {
 						ProjectStatus struct {
@@ -164,7 +164,7 @@ func TestResolveProjectUUID(t *testing.T) {
 			name:        "API returns non-200 status",
 			projectName: "test-project",
 			authHeader:  "Bearer token123",
-			serverResponse: func(w http.ResponseWriter, r *http.Request) {
+			serverResponse: func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusInternalServerError)
 			},
 			expectError:   true,
@@ -174,9 +174,9 @@ func TestResolveProjectUUID(t *testing.T) {
 			name:        "invalid JSON response",
 			projectName: "test-project",
 			authHeader:  "Bearer token123",
-			serverResponse: func(w http.ResponseWriter, r *http.Request) {
+			serverResponse: func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte("invalid json"))
+				_, _ = w.Write([]byte("invalid json"))
 			},
 			expectError:   true,
 			errorContains: "failed to decode response",
@@ -188,7 +188,7 @@ func TestResolveProjectUUID(t *testing.T) {
 			serverResponse: func(w http.ResponseWriter, r *http.Request) {
 				assert.Empty(t, r.Header.Get("Authorization"))
 				w.WriteHeader(http.StatusOK)
-				json.NewEncoder(w).Encode([]struct {
+				_ = json.NewEncoder(w).Encode([]struct {
 					Name   string `json:"name"`
 					Status struct {
 						ProjectStatus struct {
@@ -278,9 +278,9 @@ func TestResolveAndValidateProjectID(t *testing.T) {
 				ErrorOnMissingProject: true,
 			},
 			setupServer: func() *httptest.Server {
-				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 					w.WriteHeader(http.StatusOK)
-					json.NewEncoder(w).Encode([]struct {
+					_ = json.NewEncoder(w).Encode([]struct {
 						Name   string `json:"name"`
 						Status struct {
 							ProjectStatus struct {
@@ -356,9 +356,9 @@ func TestInjectActiveProjectID(t *testing.T) {
 			requestPath:    "/v1/projects/test-project/resources",
 			authHeader:     bearerJWTWithProjectRole(t, "11111111-1111-1111-1111-111111111111"),
 			setupServer: func() *httptest.Server {
-				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 					w.WriteHeader(http.StatusOK)
-					json.NewEncoder(w).Encode([]struct {
+					_ = json.NewEncoder(w).Encode([]struct {
 						Name   string `json:"name"`
 						Status struct {
 							ProjectStatus struct {
@@ -391,8 +391,8 @@ func TestInjectActiveProjectID(t *testing.T) {
 		{
 			name: "continues without header when error on missing disabled",
 			// for old-style path + missing Authorization header, errorOnMissing=false
-            // the middleware must not block the request and must NOT inject ActiveProjectID,
-            // since it cannot resolve one.
+			// the middleware must not block the request and must NOT inject ActiveProjectID,
+			// since it cannot resolve one.
 			errorOnMissing:    false,
 			existingHeader:    "",
 			requestPath:       "/edge-infra.orchestrator.apis/v2/hosts",
@@ -420,9 +420,9 @@ func TestInjectActiveProjectID(t *testing.T) {
 			// This should cause auth.ValidateProjectAccess to fail.
 			authHeader: bearerJWTWithProjectRole(t, "44444444-4444-4444-4444-444444444444"),
 			setupServer: func() *httptest.Server {
-				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 					w.WriteHeader(http.StatusOK)
-					json.NewEncoder(w).Encode([]struct {
+					_ = json.NewEncoder(w).Encode([]struct {
 						Name   string `json:"name"`
 						Status struct {
 							ProjectStatus struct {
