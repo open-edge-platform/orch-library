@@ -45,6 +45,11 @@ func TestExtractProjectIDFromJWT(t *testing.T) {
 	validUUID1 := "11111111-1111-1111-1111-111111111111"
 	validUUID2 := "22222222-2222-2222-2222-222222222222"
 
+	// Note: These tests use ExtractProjectIDFromJWT which doesn't verify signatures.
+	// The test JWTs are unsigned (alg: "none").
+	// In production with upstream validation, use ExtractProjectIDFromJWT.
+	// For standalone use without upstream validation, use ExtractProjectIDFromJWTWithVerification.
+
 	tests := []struct {
 		name            string
 		authHeader      string

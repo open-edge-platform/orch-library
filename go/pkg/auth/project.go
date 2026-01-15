@@ -4,6 +4,7 @@ package auth
 
 import (
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 
@@ -19,8 +20,69 @@ const (
 
 var uuidRegex = regexp.MustCompile(uuidPattern)
 
-// ExtractProjectIDFromJWT extracts the project UUID from JWT token roles
+// parseToken parses a JWT token string with optional signature verification.
+// When verifySignature is true, it validates the token using the ORCH_JWT_SIGNING_KEY.
+// When verifySignature is false, it parses without verification (use only when JWT was already validated upstream).
+func parseToken(tokenString string, verifySignature bool) (jwt.MapClaims, error) {
+	if verifySignature {
+		secret := os.Getenv("ORCH_JWT_SIGNING_KEY")
+		if secret == "" {
+			return nil, fmt.Errorf("JWT signing key not configured")
+		}
+
+		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+			// Reject tokens using the "none" signing method or unexpected algorithms.
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+			}
+			return []byte(secret), nil
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse JWT: %w", err)
+		}
+
+		if !token.Valid {
+			return nil, fmt.Errorf("invalid JWT token")
+		}
+
+		claims, ok := token.Claims.(jwt.MapClaims)
+		if !ok {
+			return nil, fmt.Errorf("invalid JWT claims type")
+		}
+
+		return claims, nil
+	}
+
+	// Parse without verification - use only when JWT was already validated upstream
+	token, _, err := jwt.NewParser().ParseUnverified(tokenString, jwt.MapClaims{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse JWT: %w", err)
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return nil, fmt.Errorf("invalid JWT claims")
+	}
+
+	return claims, nil
+}
+
+// ExtractProjectIDFromJWT extracts the project UUID from JWT token roles without signature verification.
+// This function assumes the JWT has already been validated by upstream authentication middleware.
+// Use ExtractProjectIDFromJWTWithVerification if you need signature verification.
 func ExtractProjectIDFromJWT(authHeader string) (string, error) {
+	return extractProjectIDFromJWT(authHeader, false)
+}
+
+// ExtractProjectIDFromJWTWithVerification extracts the project UUID from JWT token roles
+// and verifies the JWT signature using ORCH_JWT_SIGNING_KEY.
+// Use this when the JWT has NOT been validated by upstream middleware.
+func ExtractProjectIDFromJWTWithVerification(authHeader string) (string, error) {
+	return extractProjectIDFromJWT(authHeader, true)
+}
+
+// extractProjectIDFromJWT is the internal implementation that handles both verified and unverified parsing.
+func extractProjectIDFromJWT(authHeader string, verifySignature bool) (string, error) {
 	if authHeader == "" {
 		return "", fmt.Errorf("missing authorization header")
 	}
@@ -32,15 +94,10 @@ func ExtractProjectIDFromJWT(authHeader string) (string, error) {
 
 	tokenString := parts[1]
 
-	// Parse token without verification to extract claims
-	token, _, err := jwt.NewParser().ParseUnverified(tokenString, jwt.MapClaims{})
+	// Parse and validate token to extract trusted claims
+	claims, err := parseToken(tokenString, verifySignature)
 	if err != nil {
-		return "", fmt.Errorf("failed to parse JWT: %w", err)
-	}
-
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		return "", fmt.Errorf("invalid JWT claims")
+		return "", err
 	}
 
 	// Extract roles from realm_access.roles
@@ -88,9 +145,23 @@ func ExtractProjectIDFromJWT(authHeader string) (string, error) {
 	return projectID, nil
 }
 
-// ExtractAllProjectIDsFromJWT extracts all project UUIDs from JWT token roles
-// Returns a map of project IDs for quick lookup
+// ExtractAllProjectIDsFromJWT extracts all project UUIDs from JWT token roles without signature verification.
+// Returns a map of project IDs for quick lookup.
+// This function assumes the JWT has already been validated by upstream authentication middleware.
+// Use ExtractAllProjectIDsFromJWTWithVerification if you need signature verification.
 func ExtractAllProjectIDsFromJWT(authHeader string) (map[string]bool, error) {
+	return extractAllProjectIDsFromJWT(authHeader, false)
+}
+
+// ExtractAllProjectIDsFromJWTWithVerification extracts all project UUIDs from JWT token roles
+// and verifies the JWT signature using ORCH_JWT_SIGNING_KEY.
+// Use this when the JWT has NOT been validated by upstream middleware.
+func ExtractAllProjectIDsFromJWTWithVerification(authHeader string) (map[string]bool, error) {
+	return extractAllProjectIDsFromJWT(authHeader, true)
+}
+
+// extractAllProjectIDsFromJWT is the internal implementation that handles both verified and unverified parsing.
+func extractAllProjectIDsFromJWT(authHeader string, verifySignature bool) (map[string]bool, error) {
 	if authHeader == "" {
 		return nil, fmt.Errorf("missing authorization header")
 	}
@@ -102,15 +173,10 @@ func ExtractAllProjectIDsFromJWT(authHeader string) (map[string]bool, error) {
 
 	tokenString := parts[1]
 
-	// Parse token without verification to extract claims
-	token, _, err := jwt.NewParser().ParseUnverified(tokenString, jwt.MapClaims{})
+	// Parse and validate token to extract trusted claims
+	claims, err := parseToken(tokenString, verifySignature)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse JWT: %w", err)
-	}
-
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		return nil, fmt.Errorf("invalid JWT claims")
+		return nil, err
 	}
 
 	// Extract roles from realm_access.roles
@@ -151,10 +217,24 @@ func ExtractAllProjectIDsFromJWT(authHeader string) (map[string]bool, error) {
 	return projectIDs, nil
 }
 
-// ValidateProjectAccess checks if the ProjectID is accessible under the given user's JWT token.
+// ValidateProjectAccess checks if the ProjectID is accessible under the given user's JWT token without signature verification.
 // It extracts all project UUIDs from the JWT roles and verifies that projectID is among them.
 // This prevents users from accessing projects they don't have permissions for.
+// This function assumes the JWT has already been validated by upstream authentication middleware.
+// Use ValidateProjectAccessWithVerification if you need signature verification.
 func ValidateProjectAccess(authHeader string, projectID string) error {
+	return validateProjectAccess(authHeader, projectID, false)
+}
+
+// ValidateProjectAccessWithVerification checks if the ProjectID is accessible under the given user's JWT token
+// and verifies the JWT signature using ORCH_JWT_SIGNING_KEY.
+// Use this when the JWT has NOT been validated by upstream middleware.
+func ValidateProjectAccessWithVerification(authHeader string, projectID string) error {
+	return validateProjectAccess(authHeader, projectID, true)
+}
+
+// validateProjectAccess is the internal implementation that handles both verified and unverified validation.
+func validateProjectAccess(authHeader string, projectID string, verifySignature bool) error {
 	if authHeader == "" {
 		return fmt.Errorf("missing authorization header")
 	}
@@ -164,7 +244,7 @@ func ValidateProjectAccess(authHeader string, projectID string) error {
 	}
 
 	// Extract all project IDs from JWT token
-	projectIDs, err := ExtractAllProjectIDsFromJWT(authHeader)
+	projectIDs, err := extractAllProjectIDsFromJWT(authHeader, verifySignature)
 	if err != nil {
 		return fmt.Errorf("failed to extract projects from JWT: %w", err)
 	}
