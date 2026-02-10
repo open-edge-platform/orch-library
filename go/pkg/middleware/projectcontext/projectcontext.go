@@ -30,7 +30,7 @@ func ExtractProjectNameFromPath(path string) string {
 
 // ResolveProjectUUID queries the project service API to resolve project UUID from project name
 func ResolveProjectUUID(ctx context.Context, projectName string, authHeader string, projectServiceURL string) (string, error) {
-	reqURL := fmt.Sprintf("%s/v1/projects", projectServiceURL)
+	reqURL := fmt.Sprintf("%s/v1/projects?member-role=true", projectServiceURL)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
