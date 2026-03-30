@@ -14,7 +14,10 @@ import (
 
 const (
 	ActiveProjectIDHeader = "ActiveProjectID"
-	pathProjectPattern    = `^/v1/projects/([^/]+)/`
+	// pathProjectPattern matches new-style project paths across all API versions:
+	//   /v1/projects/{name}/appdeployment/...  (ADM, ARM)
+	//   /v3/projects/{name}/catalog/...        (Catalog)
+	pathProjectPattern = `^/v[0-9]+/projects/([^/]+)/`
 )
 
 var projectPathRegex = regexp.MustCompile(pathProjectPattern)
