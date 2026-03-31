@@ -32,6 +32,7 @@ func (s *M2MTestSuite) SetupTest() {
 }
 
 func (s *M2MTestSuite) TearDownTest() {
+	s.cancel()
 }
 
 type TestHTTPServer struct {
@@ -110,7 +111,7 @@ func (s *M2MTestSuite) handleK8SLogin(w http.ResponseWriter) {
 		Errors []string `json:"errors"`
 	}
 	loginResp.Auth.ClientToken = "token"
-	js, err := json.Marshal(loginResp)
+	js, err := json.Marshal(loginResp) //nolint:gosec // JWT field marshaling is intentional
 	s.NoError(err)
 	_, _ = w.Write(js)
 }
@@ -138,7 +139,7 @@ func (s *M2MTestSuite) HandleRevokeHTTPError(w http.ResponseWriter) {
 var secrets = map[string]string{}
 
 func (s *M2MTestSuite) handleSecret(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodPost {
+	if r.Method == http.MethodPost { //nolint:staticcheck
 		w.WriteHeader(http.StatusOK)
 		secretData := map[string]interface{}{}
 		rawData, err := io.ReadAll(r.Body)
@@ -171,7 +172,7 @@ func (s *M2MTestSuite) handleKeycloakToken(w http.ResponseWriter, r *http.Reques
 		}
 		tokenResp.AccessToken = "token"
 		w.WriteHeader(http.StatusOK)
-		b, err := json.Marshal(tokenResp)
+		b, err := json.Marshal(tokenResp) //nolint:gosec // JWT field marshaling is intentional
 		s.NoError(err)
 		count, err := w.Write(b)
 		s.NoError(err)
