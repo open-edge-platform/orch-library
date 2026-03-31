@@ -49,7 +49,7 @@ func ResolveProjectUUID(ctx context.Context, projectName string, authHeader stri
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Nexus API returned status %d", resp.StatusCode)
+		return "", fmt.Errorf("Nexus API returned status %d", resp.StatusCode) //nolint:staticcheck
 	}
 
 	var projects []struct {

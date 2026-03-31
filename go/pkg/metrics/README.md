@@ -1,5 +1,6 @@
 <!---
-  SPDX-FileCopyrightText: (C) 2024 Intel Corporation
+  SPDX-FileCopyrightText: (C) 2026 Intel Corporation
+
   SPDX-License-Identifier: Apache-2.0
 -->
 
@@ -24,7 +25,7 @@ between 2 specified events.
     3. Time between deployment creation and Gitrepo creation
     4. Time between deployment creation and DeploymentCluster creation
 
-# **Notes**
+## **Notes**
 
 1. If the Time between deployment creation and deployment going to running
 state keeps increasing significantly with every deployment, then its gives an

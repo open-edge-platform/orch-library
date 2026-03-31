@@ -1,5 +1,6 @@
 ---
-# SPDX-FileCopyrightText: (C) 2025 Intel Corporation
+# SPDX-FileCopyrightText: (C) 2026 Intel Corporation
+#
 # SPDX-License-Identifier: Apache-2.0
 
 name: Pre-Merge CI Pipeline
@@ -24,10 +25,10 @@ jobs:
         with:
           persist-credentials: false
       - name: "Verify Branch Name"
-        uses: open-edge-platform/orch-ci/verify-branch-name@d40dfda9598df896aa20cb1dc2c950d6444e8fa7 # v2026.0.19
+        uses: open-edge-platform/orch-ci/verify-branch-name@b115a3789da498d0f8ab2584505c0eee623aaad8 # v2026.0.19
       - name: "Discover Changed Subfolders"
         id: discover-changes
-        uses: open-edge-platform/orch-ci/discover-changed-subfolders@d40dfda9598df896aa20cb1dc2c950d6444e8fa7 # v2026.0.19
+        uses: open-edge-platform/orch-ci/discover-changed-subfolders@b115a3789da498d0f8ab2584505c0eee623aaad8 # v2026.0.19
       - name: "Filter Out Unwanted Changed Subfolders"
         env:
           changed_projects: ${{ steps.discover-changes.outputs.changed_projects }}
@@ -44,9 +45,9 @@ jobs:
       fail-fast: false
       matrix:
         project_folder: ${{ fromJson(needs.pre-checks.outputs.filtered_projects) }}
-    uses: open-edge-platform/orch-ci/.github/workflows/pre-merge.yml@d40dfda9598df896aa20cb1dc2c950d6444e8fa7 # v2026.0.19
+    uses: open-edge-platform/orch-ci/.github/workflows/pre-merge.yml@b115a3789da498d0f8ab2584505c0eee623aaad8 # v2026.0.19
     with:
-      bootstrap_tools: "go,gotools,golang-lint,nodejs"
+      bootstrap_tools: "go,gotools,golangci-lint2,nodejs"
       run_version_check: true
       run_dep_version_check: false
       run_build: true
