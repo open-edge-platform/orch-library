@@ -49,6 +49,16 @@ func TestExtractProjectNameFromPath(t *testing.T) {
 			expected: "some-test123_project",
 		},
 		{
+			name:     "v3 catalog path (catalog new-style)",
+			path:     "/v3/projects/sample-project/catalog/applications",
+			expected: "sample-project",
+		},
+		{
+			name:     "v3 catalog deployment_packages path",
+			path:     "/v3/projects/my-proj/catalog/deployment_packages",
+			expected: "my-proj",
+		},
+		{
 			name:     "old-path <-> no project",
 			path:     "/edge-infra.orchestrator.apis/v2/resources",
 			expected: "",
