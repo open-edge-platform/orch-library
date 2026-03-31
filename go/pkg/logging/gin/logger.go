@@ -1,7 +1,8 @@
-// SPDX-FileCopyrightText: (C) 2023 Intel Corporation
+// SPDX-FileCopyrightText: (C) 2026 Intel Corporation
+//
 // SPDX-License-Identifier: Apache-2.0
 
-package log
+package log //nolint:revive
 
 import (
 	"github.com/gin-gonic/gin"
