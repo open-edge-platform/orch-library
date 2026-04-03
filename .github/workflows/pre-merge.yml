@@ -25,10 +25,10 @@ jobs:
         with:
           persist-credentials: false
       - name: "Verify Branch Name"
-        uses: open-edge-platform/orch-ci/verify-branch-name@b115a3789da498d0f8ab2584505c0eee623aaad8 # v2026.0.19
+        uses: open-edge-platform/orch-ci/verify-branch-name@d78f49dde9e0cc25639748de5681484a4d1e0e59 # v2026.0.19
       - name: "Discover Changed Subfolders"
         id: discover-changes
-        uses: open-edge-platform/orch-ci/discover-changed-subfolders@b115a3789da498d0f8ab2584505c0eee623aaad8 # v2026.0.19
+        uses: open-edge-platform/orch-ci/discover-changed-subfolders@d78f49dde9e0cc25639748de5681484a4d1e0e59 # v2026.0.19
       - name: "Filter Out Unwanted Changed Subfolders"
         env:
           changed_projects: ${{ steps.discover-changes.outputs.changed_projects }}
@@ -45,7 +45,7 @@ jobs:
       fail-fast: false
       matrix:
         project_folder: ${{ fromJson(needs.pre-checks.outputs.filtered_projects) }}
-    uses: open-edge-platform/orch-ci/.github/workflows/pre-merge.yml@b115a3789da498d0f8ab2584505c0eee623aaad8 # v2026.0.19
+    uses: open-edge-platform/orch-ci/.github/workflows/pre-merge.yml@d78f49dde9e0cc25639748de5681484a4d1e0e59 # v2026.0.19
     with:
       bootstrap_tools: "go,gotools,golangci-lint2,nodejs"
       run_version_check: true
