@@ -1,0 +1,8 @@
+# SPDX-FileCopyrightText: (C) 2026 Intel Corporation
+#
+# SPDX-License-Identifier: Apache-2.0
+
+# Test tokens - safe to ignore.
+go/pkg/auth/jwt_test.go:88
+go/pkg/auth/jwt_test.go:89
+
