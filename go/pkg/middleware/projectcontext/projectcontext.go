@@ -31,9 +31,10 @@ func ExtractProjectNameFromPath(path string) string {
 	return ""
 }
 
-// ResolveProjectUUID queries the project service API to resolve project UUID from project name
+// ResolveProjectUUID queries the Tenant Manager API to resolve project UUID from project name.
+// Calls GET /v1/projects/{name} directly for O(1) lookup instead of listing all projects.
 func ResolveProjectUUID(ctx context.Context, projectName string, authHeader string, projectServiceURL string) (string, error) {
-	reqURL := fmt.Sprintf("%s/v1/projects?member-role=true", projectServiceURL)
+	reqURL := fmt.Sprintf("%s/v1/projects/%s", projectServiceURL, projectName)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
@@ -47,15 +48,18 @@ func ResolveProjectUUID(ctx context.Context, projectName string, authHeader stri
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("failed to query Nexus API: %w", err)
+		return "", fmt.Errorf("failed to query tenant manager: %w", err)
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusNotFound {
+		return "", fmt.Errorf("project not found: %s", projectName)
+	}
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Nexus API returned status %d", resp.StatusCode) //nolint:staticcheck
+		return "", fmt.Errorf("tenant manager returned status %d", resp.StatusCode)
 	}
 
-	var projects []struct {
+	var project struct {
 		Name   string `json:"name"`
 		Status struct {
 			ProjectStatus struct {
@@ -64,17 +68,11 @@ func ResolveProjectUUID(ctx context.Context, projectName string, authHeader stri
 		} `json:"status"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&projects); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&project); err != nil {
 		return "", fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	for _, project := range projects {
-		if project.Name == projectName {
-			return project.Status.ProjectStatus.UID, nil
-		}
-	}
-
-	return "", fmt.Errorf("project not found: %s", projectName)
+	return project.Status.ProjectStatus.UID, nil
 }
 
 // ProjectResolverConfig holds configuration for project resolution and validation
@@ -86,7 +84,7 @@ type ProjectResolverConfig struct {
 // ResolveAndValidateProjectID is a framework-agnostic helper that resolves and validates
 // project ID from request path and auth header. It performs:
 // 1. Extract project name from path
-// 2. Resolve project UUID via project service (Nexus) API
+// 2. Resolve project UUID via the Tenant Manager API
 // 3. Validate user has access to the project
 // 4. Fall back to JWT extraction for old-style paths
 //
