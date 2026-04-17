@@ -12,24 +12,56 @@ package tenancy
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 )
 
+// EventType constants for Event.EventType.
+const (
+	EventTypeCreated = "created"
+	EventTypeDeleted = "deleted"
+)
+
+// ResourceType constants for Event.ResourceType.
+const (
+	ResourceTypeOrg     = "org"
+	ResourceTypeProject = "project"
+)
+
+// Status constants used in controller status reporting.
+const (
+	StatusInProgress = "in_progress"
+	StatusCompleted  = "completed"
+	StatusError      = "error"
+)
+
 // Event represents a tenancy lifecycle event. Both replay (synthesized
 // from DB state) and incremental (from tenancy_events) events use the
-// same structure.
+// same structure. Handlers must be idempotent — replay on restart will
+// re-deliver events for all existing and soft-deleted resources.
 type Event struct {
-	ID           int64      `json:"id"`
-	EventType    string     `json:"eventType"`    // "created", "deleted"
-	ResourceType string     `json:"resourceType"` // "org", "project"
-	ResourceID   uuid.UUID  `json:"resourceId"`
-	ResourceName string     `json:"resourceName"`
-	OrgID        *uuid.UUID `json:"orgId"`
-	OrgName      *string    `json:"orgName"`
-	FolderID     *uuid.UUID `json:"folderId"`
-	CreatedAt    time.Time  `json:"createdAt"`
+	// ID is the monotonically increasing event sequence number.
+	ID int64 `json:"id"`
+	// EventType is "created" or "deleted".
+	EventType string `json:"eventType"`
+	// ResourceType is "org" or "project".
+	ResourceType string    `json:"resourceType"`
+	ResourceID   uuid.UUID `json:"resourceId"`
+	ResourceName string    `json:"resourceName"`
+	// OrgID is set for project events; nil for org events.
+	OrgID   *uuid.UUID `json:"orgId"`
+	OrgName *string    `json:"orgName"`
+	// FolderID is reserved for future hierarchical resource types.
+	FolderID  *uuid.UUID `json:"folderId"`
+	CreatedAt time.Time  `json:"createdAt"`
+}
+
+// String returns a summary of the event for logging.
+func (e Event) String() string {
+	return fmt.Sprintf("Event{id=%d type=%s/%s name=%q resourceId=%s}",
+		e.ID, e.ResourceType, e.EventType, e.ResourceName, e.ResourceID)
 }
 
 // Handler is implemented by each controller with its business logic.

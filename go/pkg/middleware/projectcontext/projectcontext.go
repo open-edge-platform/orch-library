@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
+	"time"
 
 	"github.com/open-edge-platform/orch-library/go/pkg/auth"
 )
@@ -20,7 +22,13 @@ const (
 	pathProjectPattern = `^/v[0-9]+/projects/([^/]+)/`
 )
 
-var projectPathRegex = regexp.MustCompile(pathProjectPattern)
+var (
+	projectPathRegex = regexp.MustCompile(pathProjectPattern)
+
+	// sharedHTTPClient is reused across all ResolveProjectUUID calls to
+	// benefit from connection pooling to the Tenant Manager.
+	sharedHTTPClient = &http.Client{Timeout: 10 * time.Second}
+)
 
 // ExtractProjectNameFromPath extracts the project name from the given context
 func ExtractProjectNameFromPath(path string) string {
@@ -31,10 +39,13 @@ func ExtractProjectNameFromPath(path string) string {
 	return ""
 }
 
-// ResolveProjectUUID queries the Tenant Manager API to resolve project UUID from project name.
-// Calls GET /v1/projects/{name} directly for O(1) lookup instead of listing all projects.
+// ResolveProjectUUID resolves a project name to its UUID by calling
+// GET /v1/projects/{name} on the Tenant Manager. The Tenant Manager enforces
+// JWT-based RBAC internally: it checks that the caller has project-read-role
+// or member-role within the appropriate org. Forwarding the Authorization
+// header is sufficient — no additional filter parameters are required.
 func ResolveProjectUUID(ctx context.Context, projectName string, authHeader string, projectServiceURL string) (string, error) {
-	reqURL := fmt.Sprintf("%s/v1/projects/%s", projectServiceURL, projectName)
+	reqURL := fmt.Sprintf("%s/v1/projects/%s", projectServiceURL, url.PathEscape(projectName))
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
@@ -45,8 +56,7 @@ func ResolveProjectUUID(ctx context.Context, projectName string, authHeader stri
 		req.Header.Set("Authorization", authHeader)
 	}
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := sharedHTTPClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to query tenant manager: %w", err)
 	}
