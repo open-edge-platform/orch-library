@@ -64,7 +64,6 @@ func (e Event) String() string {
 		e.ID, e.ResourceType, e.EventType, e.ResourceName, e.ResourceID)
 }
 
-// Handler is implemented by each controller with its business logic.
 type Handler interface {
 	// HandleEvent is called for each event (both replay and incremental).
 	// Must be idempotent -- replay on restart will re-deliver events for

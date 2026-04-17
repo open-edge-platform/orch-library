@@ -42,8 +42,11 @@ func ExtractProjectNameFromPath(path string) string {
 // ResolveProjectUUID resolves a project name to its UUID by calling
 // GET /v1/projects/{name} on the Tenant Manager. The Tenant Manager enforces
 // JWT-based RBAC internally: it checks that the caller has project-read-role
-// or member-role within the appropriate org. Forwarding the Authorization
-// header is sufficient — no additional filter parameters are required.
+// or member-role within the appropriate org.
+//
+// This function also validates that the caller has access
+// to the returned project UUID by checking JWT claims. This protects against
+// misconfigured Tenant Manager auth middleware or direct ClusterIP access.
 func ResolveProjectUUID(ctx context.Context, projectName string, authHeader string, projectServiceURL string) (string, error) {
 	reqURL := fmt.Sprintf("%s/v1/projects/%s", projectServiceURL, url.PathEscape(projectName))
 
@@ -82,7 +85,18 @@ func ResolveProjectUUID(ctx context.Context, projectName string, authHeader stri
 		return "", fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	return project.Status.ProjectStatus.UID, nil
+	projectUUID := project.Status.ProjectStatus.UID
+
+	// This function also validates that the caller has access to this project via JWT claims.
+	// The Tenant Manager should have already enforced this, but we verify
+	// client-side to protect against misconfiguration or direct ClusterIP access.
+	if projectUUID != "" && authHeader != "" {
+		if err := auth.ValidateProjectAccess(authHeader, projectUUID); err != nil {
+			return "", fmt.Errorf("access denied to project %s: %w", projectName, err)
+		}
+	}
+
+	return projectUUID, nil
 }
 
 // ProjectResolverConfig holds configuration for project resolution and validation

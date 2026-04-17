@@ -71,7 +71,8 @@ type Poller struct {
 // they are ClusterIP-only and the Tenant Manager enforces in-cluster network
 // policy rather than JWT validation on these routes.
 //
-// Returns an error if tenantManagerURL or controllerName is empty.
+// Returns an error if tenantManagerURL or controllerName is empty, or if
+// the resulting config is invalid.
 func NewPoller(tenantManagerURL, controllerName string, handler Handler, opts ...func(*PollerConfig)) (*Poller, error) {
 	if tenantManagerURL == "" {
 		return nil, fmt.Errorf("tenantManagerURL must not be empty")
@@ -86,6 +87,24 @@ func NewPoller(tenantManagerURL, controllerName string, handler Handler, opts ..
 	for _, opt := range opts {
 		opt(&cfg)
 	}
+
+	// Validate config after applying options.
+	if cfg.PollInterval <= 0 {
+		return nil, fmt.Errorf("PollInterval must be positive, got %s", cfg.PollInterval)
+	}
+	if cfg.PollLimit <= 0 {
+		return nil, fmt.Errorf("PollLimit must be positive, got %d", cfg.PollLimit)
+	}
+	if cfg.InitialBackoff <= 0 {
+		return nil, fmt.Errorf("InitialBackoff must be positive, got %s", cfg.InitialBackoff)
+	}
+	if cfg.MaxBackoff <= 0 {
+		return nil, fmt.Errorf("MaxBackoff must be positive, got %s", cfg.MaxBackoff)
+	}
+	if cfg.HTTPTimeout <= 0 {
+		return nil, fmt.Errorf("HTTPTimeout must be positive, got %s", cfg.HTTPTimeout)
+	}
+
 	return &Poller{
 		tenantManagerURL: tenantManagerURL,
 		controllerName:   controllerName,
@@ -179,6 +198,9 @@ func (p *Poller) replay(ctx context.Context) (int64, error) {
 }
 
 // poll fetches incremental events after lastEventID and processes them.
+// Returns the last successfully processed event ID. If any event fails,
+// stops processing and returns the ID of the last successful event so that
+// failed events will be retried on the next poll (at-least-once semantics).
 func (p *Poller) poll(ctx context.Context, lastEventID int64) (int64, error) {
 	tmURL := fmt.Sprintf("%s/v1/events?controller=%s&after=%d&limit=%d",
 		p.tenantManagerURL, url.QueryEscape(p.controllerName), lastEventID, p.config.PollLimit)
@@ -193,23 +215,34 @@ func (p *Poller) poll(ctx context.Context, lastEventID int64) (int64, error) {
 			p.controllerName, len(resp.Events), resp.LastEventID)
 	}
 
+	// Process events sequentially. Stop at first error to preserve
+	// at-least-once semantics (failed event will be retried on next poll).
+	processedLastEventID := lastEventID
 	for _, event := range resp.Events {
 		if err := p.processEvent(ctx, event); err != nil {
-			p.logError(err, fmt.Sprintf("event %s %s/%s failed (controller=%s)",
+			p.logError(err, fmt.Sprintf("event %s %s/%s failed (controller=%s), will retry on next poll",
 				event.EventType, event.ResourceType, event.ResourceName, p.controllerName))
+			return processedLastEventID, nil
 		}
+		processedLastEventID = event.ID
 	}
 
-	return resp.LastEventID, nil
+	return processedLastEventID, nil
 }
 
 // processEvent handles a single event: set in_progress, call handler,
 // then update status or delete status row.
+//
+// Status update failures are logged but do NOT cause event processing to fail.
+// This prevents temporary Tenant Manager unavailability from blocking event
+// processing. The tradeoff: status may briefly be stale until the next successful
+// status update (on replay or next event). Controllers must be idempotent to
+// handle replay reconciliation.
 func (p *Poller) processEvent(ctx context.Context, event Event) error {
 	log.Debugf("tenancy processEvent: controller=%s type=%s/%s resource=%s id=%d",
 		p.controllerName, event.ResourceType, event.EventType, event.ResourceName, event.ID)
 
-	// Set status to in_progress.
+	// Set status to in_progress. Log failure but continue processing.
 	if err := p.updateStatus(ctx, event.ResourceType, event.ResourceID, StatusInProgress, ""); err != nil {
 		p.logError(err, fmt.Sprintf("failed to set in_progress status for %s/%s (controller=%s)",
 			event.ResourceType, event.ResourceName, p.controllerName))
@@ -225,10 +258,19 @@ func (p *Poller) processEvent(ctx context.Context, event Event) error {
 	if event.EventType == EventTypeDeleted {
 		if handleErr == nil {
 			// Success: delete the status row (analogous to DeleteActiveWatchers in Nexus).
-			return p.deleteStatus(ctx, event.ResourceType, event.ResourceID)
+			// Status delete failure is logged but doesn't fail the event.
+			if err := p.deleteStatus(ctx, event.ResourceType, event.ResourceID); err != nil {
+				p.logError(err, fmt.Sprintf("failed to delete status for %s/%s (controller=%s)",
+					event.ResourceType, event.ResourceName, p.controllerName))
+			}
+			return nil
 		}
 		// Error on delete: set error status (row remains for visibility).
-		_ = p.updateStatus(ctx, event.ResourceType, event.ResourceID, StatusError, handleErr.Error())
+		// Status update failure is logged but we still return the handler error.
+		if err := p.updateStatus(ctx, event.ResourceType, event.ResourceID, StatusError, handleErr.Error()); err != nil {
+			p.logError(err, fmt.Sprintf("failed to set error status for %s/%s (controller=%s)",
+				event.ResourceType, event.ResourceName, p.controllerName))
+		}
 		return handleErr
 	}
 
@@ -237,7 +279,12 @@ func (p *Poller) processEvent(ctx context.Context, event Event) error {
 		_ = p.updateStatus(ctx, event.ResourceType, event.ResourceID, StatusError, handleErr.Error())
 		return handleErr
 	}
-	return p.updateStatus(ctx, event.ResourceType, event.ResourceID, StatusCompleted, "")
+	statusErr := p.updateStatus(ctx, event.ResourceType, event.ResourceID, StatusCompleted, "")
+	if statusErr != nil {
+		p.logError(statusErr, fmt.Sprintf("failed to set completed status for %s/%s (controller=%s)",
+			event.ResourceType, event.ResourceName, p.controllerName))
+	}
+	return nil
 }
 
 func (p *Poller) logError(err error, msg string) {

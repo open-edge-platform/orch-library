@@ -18,10 +18,14 @@ import (
 func bearerJWTWithProjectRole(t *testing.T, projectUUID string) string {
 	t.Helper()
 
+	// Role format: {projectUUID}_{roleName}
+	// The auth package looks for UUIDs in the first segment before "_"
+	role := projectUUID + "_member-role"
+
 	headerJSON := []byte(`{"alg":"none","typ":"JWT"}`)
 	payload, err := json.Marshal(map[string]interface{}{
 		"realm_access": map[string]interface{}{
-			"roles": []interface{}{projectUUID + "_some-role"},
+			"roles": []interface{}{role},
 		},
 	})
 	require.NoError(t, err)
@@ -106,9 +110,12 @@ func TestResolveProjectUUID(t *testing.T) {
 		{
 			name:        "successful project resolution",
 			projectName: "test-project",
-			authHeader:  "Bearer token123",
+			// Generate a valid JWT with the project UUID in roles for defense-in-depth validation
+			// Use a valid UUID format (required by auth.ValidateProjectAccess)
+			authHeader: bearerJWTWithProjectRole(t, "123e4567-e89b-12d3-a456-426614174000"),
 			serverResponse: func(w http.ResponseWriter, r *http.Request) {
-				assert.Equal(t, "Bearer token123", r.Header.Get("Authorization"))
+				// Verify auth header is forwarded
+				assert.NotEmpty(t, r.Header.Get("Authorization"))
 				w.WriteHeader(http.StatusOK)
 				_ = json.NewEncoder(w).Encode(struct {
 					Name   string `json:"name"`
@@ -127,13 +134,13 @@ func TestResolveProjectUUID(t *testing.T) {
 						ProjectStatus: struct {
 							UID string `json:"uID"`
 						}{
-							UID: "uuid-123",
+							UID: "123e4567-e89b-12d3-a456-426614174000",
 						},
 					},
 				})
 			},
 			expectError:  false,
-			expectedUUID: "uuid-123",
+			expectedUUID: "123e4567-e89b-12d3-a456-426614174000",
 		},
 		{
 			name:        "project not found",
