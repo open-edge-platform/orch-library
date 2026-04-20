@@ -50,7 +50,7 @@ func ExtractProjectNameFromPath(path string) string {
 func ResolveProjectUUID(ctx context.Context, projectName string, authHeader string, projectServiceURL string) (string, error) {
 	reqURL := fmt.Sprintf("%s/v1/projects/%s", projectServiceURL, url.PathEscape(projectName))
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil) //nolint:gosec // projectServiceURL is a configured service URL, not user input; projectName is PathEscaped
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
@@ -59,7 +59,7 @@ func ResolveProjectUUID(ctx context.Context, projectName string, authHeader stri
 		req.Header.Set("Authorization", authHeader)
 	}
 
-	resp, err := sharedHTTPClient.Do(req)
+	resp, err := sharedHTTPClient.Do(req) //nolint:gosec // URL constructed from configured service endpoint with escaped path
 	if err != nil {
 		return "", fmt.Errorf("failed to query tenant manager: %w", err)
 	}
@@ -87,10 +87,17 @@ func ResolveProjectUUID(ctx context.Context, projectName string, authHeader stri
 
 	projectUUID := project.Status.ProjectStatus.UID
 
-	// This function also validates that the caller has access to this project via JWT claims.
+	// A 200 response with an empty UUID means the Tenant Manager returned a
+	// malformed/partial response. Treat this as a hard failure rather than
+	// silently returning empty string (which callers interpret as "no project").
+	if projectUUID == "" {
+		return "", fmt.Errorf("tenant manager returned empty project UUID for %s", projectName)
+	}
+
+	// Validate user has access to this project via JWT claims.
 	// The Tenant Manager should have already enforced this, but we verify
 	// client-side to protect against misconfiguration or direct ClusterIP access.
-	if projectUUID != "" && authHeader != "" {
+	if authHeader != "" {
 		if err := auth.ValidateProjectAccess(authHeader, projectUUID); err != nil {
 			return "", fmt.Errorf("access denied to project %s: %w", projectName, err)
 		}

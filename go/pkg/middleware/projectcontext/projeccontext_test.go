@@ -174,6 +174,18 @@ func TestResolveProjectUUID(t *testing.T) {
 			errorContains: "failed to decode response",
 		},
 		{
+			name:        "200 response with empty UUID is a hard failure",
+			projectName: "test-project",
+			authHeader:  "Bearer token123",
+			serverResponse: func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				// Partial/malformed response: status.projectStatus.uID is missing
+				_, _ = w.Write([]byte(`{"name":"test-project","status":{"projectStatus":{}}}`))
+			},
+			expectError:   true,
+			errorContains: "empty project UUID",
+		},
+		{
 			name:        "empty auth header",
 			projectName: "test-project",
 			authHeader:  "",

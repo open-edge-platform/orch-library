@@ -356,10 +356,10 @@ func TestPoller_Poll_AdvancesLastEventID(t *testing.T) {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/v1/events", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/v1/events", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(incrementalResp)
 	})
-	mux.HandleFunc("/v1/status", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/v1/status", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 	srv := httptest.NewServer(mux)

@@ -276,7 +276,10 @@ func (p *Poller) processEvent(ctx context.Context, event Event) error {
 
 	// Created event.
 	if handleErr != nil {
-		_ = p.updateStatus(ctx, event.ResourceType, event.ResourceID, StatusError, handleErr.Error())
+		if err := p.updateStatus(ctx, event.ResourceType, event.ResourceID, StatusError, handleErr.Error()); err != nil {
+			p.logError(err, fmt.Sprintf("failed to set error status for %s/%s (controller=%s)",
+				event.ResourceType, event.ResourceName, p.controllerName))
+		}
 		return handleErr
 	}
 	statusErr := p.updateStatus(ctx, event.ResourceType, event.ResourceID, StatusCompleted, "")
