@@ -114,13 +114,13 @@ type ProjectResolverConfig struct {
 
 // ResolveAndValidateProjectID is a framework-agnostic helper that resolves and validates
 // project ID from request path and auth header. It performs:
-// 1. Extract project name from path
-// 2. Resolve project UUID via project service (Nexus) API
-// 3. Validate user has access to the project
-// 4. Fall back to JWT extraction for old-style paths
+//  1. Extract project name from path
+//  2. Resolve project UUID via Tenant Manager REST API
+//     — ResolveProjectUUID also verifies JWT access
+//  3. Fall back to JWT extraction for old-style paths
 //
 // Returns (projectUUID, error) - error is non-nil only if ErrorOnMissingProject is true
-// and the project cannot be resolved or user doesn't have access.
+// and the project cannot be resolved or the caller does not have access.
 func ResolveAndValidateProjectID(ctx context.Context, path string, authHeader string, existingProjectID string, config ProjectResolverConfig) (string, error) {
 	if existingProjectID != "" {
 		return existingProjectID, nil // Already set, no need to resolve
@@ -131,6 +131,8 @@ func ResolveAndValidateProjectID(ctx context.Context, path string, authHeader st
 
 	if projectName != "" {
 		// New-style path: /v1/projects/{projectName}/...
+		// ResolveProjectUUID performs the Tenant Manager lookup and enforces
+		// JWT-based access validation internally.
 		projectUUID, err := ResolveProjectUUID(ctx, projectName, authHeader, config.ProjectServiceURL)
 		if err != nil {
 			if config.ErrorOnMissingProject {
@@ -138,17 +140,7 @@ func ResolveAndValidateProjectID(ctx context.Context, path string, authHeader st
 			}
 			return "", nil
 		}
-
-		if projectUUID != "" {
-			// Validate user has access to this project
-			if err := auth.ValidateProjectAccess(authHeader, projectUUID); err != nil {
-				if config.ErrorOnMissingProject {
-					return "", fmt.Errorf("access denied to project %s: %w", projectName, err)
-				}
-				return "", nil
-			}
-			return projectUUID, nil
-		}
+		return projectUUID, nil
 	} else if authHeader != "" {
 		// Old-style path: /edge-infra.orchestrator.apis/v2/...
 		// Extract project UUID from JWT token roles

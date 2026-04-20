@@ -175,6 +175,10 @@ func (p *Poller) replayWithRetry(ctx context.Context) (int64, error) {
 }
 
 // replay fetches synthesized events and processes them.
+// Returns an error if any event fails — the caller (replayWithRetry) will
+// retry the whole replay until all synthesized events are successfully processed.
+// Unlike poll(), partial progress is not tracked: the replay endpoint
+// re-synthesizes the full snapshot on each call, so retrying from scratch is safe.
 func (p *Poller) replay(ctx context.Context) (int64, error) {
 	tmURL := fmt.Sprintf("%s/v1/events?controller=%s&replay=true",
 		p.tenantManagerURL, url.QueryEscape(p.controllerName))
@@ -189,8 +193,8 @@ func (p *Poller) replay(ctx context.Context) (int64, error) {
 
 	for _, event := range resp.Events {
 		if err := p.processEvent(ctx, event); err != nil {
-			p.logError(err, fmt.Sprintf("replay event %s %s/%s failed (controller=%s)",
-				event.EventType, event.ResourceType, event.ResourceName, p.controllerName))
+			return 0, fmt.Errorf("replay event %s %s/%s failed (controller=%s): %w",
+				event.EventType, event.ResourceType, event.ResourceName, p.controllerName, err)
 		}
 	}
 
