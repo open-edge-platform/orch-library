@@ -246,6 +246,18 @@ func (p *Poller) processEvent(ctx context.Context, event Event) error {
 	log.Debugf("tenancy processEvent: controller=%s type=%s/%s resource=%s id=%d",
 		p.controllerName, event.ResourceType, event.EventType, event.ResourceName, event.ID)
 
+	// Sanity check: a malformed event with a zero ResourceID would cause every
+	// downstream operation (status updates keyed by resource_id, namespace
+	// creation, Keycloak group lookup, etc.) to either no-op silently or
+	// affect the wrong resource. Reject it here so handlers don't have to
+	// repeat this defense.
+	if event.ResourceID == uuid.Nil {
+		err := fmt.Errorf("tenancy event has zero ResourceID (controller=%s event_id=%d type=%s/%s name=%q)",
+			p.controllerName, event.ID, event.ResourceType, event.EventType, event.ResourceName)
+		p.logError(err, "dropping malformed event")
+		return err
+	}
+
 	// Set status to in_progress. Log failure but continue processing.
 	if err := p.updateStatus(ctx, event.ResourceType, event.ResourceID, StatusInProgress, ""); err != nil {
 		p.logError(err, fmt.Sprintf("failed to set in_progress status for %s/%s (controller=%s)",

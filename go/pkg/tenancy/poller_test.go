@@ -249,6 +249,32 @@ func TestPoller_ProcessEvent_CreatedSuccess(t *testing.T) {
 	assert.Equal(t, StatusCompleted, statusCalls[1].body["status"])
 }
 
+func TestPoller_ProcessEvent_RejectsZeroResourceID(t *testing.T) {
+	event := Event{
+		ID: 1, EventType: EventTypeCreated, ResourceType: ResourceTypeProject,
+		ResourceID: uuid.Nil, ResourceName: "bad",
+	}
+
+	var statusCalls int
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/status", func(w http.ResponseWriter, _ *http.Request) {
+		statusCalls++
+		w.WriteHeader(http.StatusOK)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	h := &recordingHandler{}
+	p := mustPoller(t, srv.URL, "ctrl", h)
+
+	err := p.processEvent(context.Background(), event)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "zero ResourceID")
+	// Handler must not be invoked, no status writes either.
+	assert.Empty(t, h.events)
+	assert.Equal(t, 0, statusCalls)
+}
+
 func TestPoller_ProcessEvent_CreatedError(t *testing.T) {
 	id := uuid.New()
 	event := Event{
