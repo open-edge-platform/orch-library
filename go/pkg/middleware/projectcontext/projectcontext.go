@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
+	"time"
 
 	"github.com/open-edge-platform/orch-library/go/pkg/auth"
 )
@@ -20,7 +22,13 @@ const (
 	pathProjectPattern = `^/v[0-9]+/projects/([^/]+)/`
 )
 
-var projectPathRegex = regexp.MustCompile(pathProjectPattern)
+var (
+	projectPathRegex = regexp.MustCompile(pathProjectPattern)
+
+	// sharedHTTPClient is reused across all ResolveProjectUUID calls to
+	// benefit from connection pooling to the Tenant Manager.
+	sharedHTTPClient = &http.Client{Timeout: 10 * time.Second}
+)
 
 // ExtractProjectNameFromPath extracts the project name from the given context
 func ExtractProjectNameFromPath(path string) string {
@@ -31,11 +39,18 @@ func ExtractProjectNameFromPath(path string) string {
 	return ""
 }
 
-// ResolveProjectUUID queries the project service API to resolve project UUID from project name
+// ResolveProjectUUID resolves a project name to its UUID by calling
+// GET /v1/projects/{name} on the Tenant Manager. The Tenant Manager enforces
+// JWT-based RBAC internally: it checks that the caller has project-read-role
+// or member-role within the appropriate org.
+//
+// This function also validates that the caller has access
+// to the returned project UUID by checking JWT claims. This protects against
+// misconfigured Tenant Manager auth middleware or direct ClusterIP access.
 func ResolveProjectUUID(ctx context.Context, projectName string, authHeader string, projectServiceURL string) (string, error) {
-	reqURL := fmt.Sprintf("%s/v1/projects?member-role=true", projectServiceURL)
+	reqURL := fmt.Sprintf("%s/v1/projects/%s", projectServiceURL, url.PathEscape(projectName))
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil) //nolint:gosec // projectServiceURL is a configured service URL, not user input; projectName is PathEscaped
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
@@ -44,18 +59,20 @@ func ResolveProjectUUID(ctx context.Context, projectName string, authHeader stri
 		req.Header.Set("Authorization", authHeader)
 	}
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := sharedHTTPClient.Do(req) //nolint:gosec // URL constructed from configured service endpoint with escaped path
 	if err != nil {
-		return "", fmt.Errorf("failed to query Nexus API: %w", err)
+		return "", fmt.Errorf("failed to query tenant manager: %w", err)
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusNotFound {
+		return "", fmt.Errorf("project not found: %s", projectName)
+	}
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Nexus API returned status %d", resp.StatusCode) //nolint:staticcheck
+		return "", fmt.Errorf("tenant manager returned status %d", resp.StatusCode)
 	}
 
-	var projects []struct {
+	var project struct {
 		Name   string `json:"name"`
 		Status struct {
 			ProjectStatus struct {
@@ -64,17 +81,29 @@ func ResolveProjectUUID(ctx context.Context, projectName string, authHeader stri
 		} `json:"status"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&projects); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&project); err != nil {
 		return "", fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	for _, project := range projects {
-		if project.Name == projectName {
-			return project.Status.ProjectStatus.UID, nil
+	projectUUID := project.Status.ProjectStatus.UID
+
+	// A 200 response with an empty UUID means the Tenant Manager returned a
+	// malformed/partial response. Treat this as a hard failure rather than
+	// silently returning empty string (which callers interpret as "no project").
+	if projectUUID == "" {
+		return "", fmt.Errorf("tenant manager returned empty project UUID for %s", projectName)
+	}
+
+	// Validate user has access to this project via JWT claims.
+	// The Tenant Manager should have already enforced this, but we verify
+	// client-side to protect against misconfiguration or direct ClusterIP access.
+	if authHeader != "" {
+		if err := auth.ValidateProjectAccess(authHeader, projectUUID); err != nil {
+			return "", fmt.Errorf("access denied to project %s: %w", projectName, err)
 		}
 	}
 
-	return "", fmt.Errorf("project not found: %s", projectName)
+	return projectUUID, nil
 }
 
 // ProjectResolverConfig holds configuration for project resolution and validation
@@ -85,13 +114,13 @@ type ProjectResolverConfig struct {
 
 // ResolveAndValidateProjectID is a framework-agnostic helper that resolves and validates
 // project ID from request path and auth header. It performs:
-// 1. Extract project name from path
-// 2. Resolve project UUID via project service (Nexus) API
-// 3. Validate user has access to the project
-// 4. Fall back to JWT extraction for old-style paths
+//  1. Extract project name from path
+//  2. Resolve project UUID via Tenant Manager REST API
+//     — ResolveProjectUUID also verifies JWT access
+//  3. Fall back to JWT extraction for old-style paths
 //
 // Returns (projectUUID, error) - error is non-nil only if ErrorOnMissingProject is true
-// and the project cannot be resolved or user doesn't have access.
+// and the project cannot be resolved or the caller does not have access.
 func ResolveAndValidateProjectID(ctx context.Context, path string, authHeader string, existingProjectID string, config ProjectResolverConfig) (string, error) {
 	if existingProjectID != "" {
 		return existingProjectID, nil // Already set, no need to resolve
@@ -102,6 +131,8 @@ func ResolveAndValidateProjectID(ctx context.Context, path string, authHeader st
 
 	if projectName != "" {
 		// New-style path: /v1/projects/{projectName}/...
+		// ResolveProjectUUID performs the Tenant Manager lookup and enforces
+		// JWT-based access validation internally.
 		projectUUID, err := ResolveProjectUUID(ctx, projectName, authHeader, config.ProjectServiceURL)
 		if err != nil {
 			if config.ErrorOnMissingProject {
@@ -109,17 +140,7 @@ func ResolveAndValidateProjectID(ctx context.Context, path string, authHeader st
 			}
 			return "", nil
 		}
-
-		if projectUUID != "" {
-			// Validate user has access to this project
-			if err := auth.ValidateProjectAccess(authHeader, projectUUID); err != nil {
-				if config.ErrorOnMissingProject {
-					return "", fmt.Errorf("access denied to project %s: %w", projectName, err)
-				}
-				return "", nil
-			}
-			return projectUUID, nil
-		}
+		return projectUUID, nil
 	} else if authHeader != "" {
 		// Old-style path: /edge-infra.orchestrator.apis/v2/...
 		// Extract project UUID from JWT token roles
