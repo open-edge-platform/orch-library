@@ -18,10 +18,14 @@ import (
 func bearerJWTWithProjectRole(t *testing.T, projectUUID string) string {
 	t.Helper()
 
+	// Role format: {projectUUID}_{roleName}
+	// The auth package looks for UUIDs in the first segment before "_"
+	role := projectUUID + "_member-role"
+
 	headerJSON := []byte(`{"alg":"none","typ":"JWT"}`)
 	payload, err := json.Marshal(map[string]interface{}{
 		"realm_access": map[string]interface{}{
-			"roles": []interface{}{projectUUID + "_some-role"},
+			"roles": []interface{}{role},
 		},
 	})
 	require.NoError(t, err)
@@ -106,11 +110,14 @@ func TestResolveProjectUUID(t *testing.T) {
 		{
 			name:        "successful project resolution",
 			projectName: "test-project",
-			authHeader:  "Bearer token123",
+			// Generate a valid JWT with the project UUID in roles for defense-in-depth validation
+			// Use a valid UUID format (required by auth.ValidateProjectAccess)
+			authHeader: bearerJWTWithProjectRole(t, "123e4567-e89b-12d3-a456-426614174000"),
 			serverResponse: func(w http.ResponseWriter, r *http.Request) {
-				assert.Equal(t, "Bearer token123", r.Header.Get("Authorization"))
+				// Verify auth header is forwarded
+				assert.NotEmpty(t, r.Header.Get("Authorization"))
 				w.WriteHeader(http.StatusOK)
-				_ = json.NewEncoder(w).Encode([]struct {
+				_ = json.NewEncoder(w).Encode(struct {
 					Name   string `json:"name"`
 					Status struct {
 						ProjectStatus struct {
@@ -118,54 +125,29 @@ func TestResolveProjectUUID(t *testing.T) {
 						} `json:"projectStatus"`
 					} `json:"status"`
 				}{
-					{
-						Name: "test-project",
-						Status: struct {
-							ProjectStatus struct {
-								UID string `json:"uID"`
-							} `json:"projectStatus"`
+					Name: "test-project",
+					Status: struct {
+						ProjectStatus struct {
+							UID string `json:"uID"`
+						} `json:"projectStatus"`
+					}{
+						ProjectStatus: struct {
+							UID string `json:"uID"`
 						}{
-							ProjectStatus: struct {
-								UID string `json:"uID"`
-							}{
-								UID: "uuid-123",
-							},
+							UID: "123e4567-e89b-12d3-a456-426614174000",
 						},
 					},
 				})
 			},
 			expectError:  false,
-			expectedUUID: "uuid-123",
+			expectedUUID: "123e4567-e89b-12d3-a456-426614174000",
 		},
 		{
 			name:        "project not found",
 			projectName: "non-existent",
 			authHeader:  "Bearer token123",
 			serverResponse: func(w http.ResponseWriter, _ *http.Request) {
-				w.WriteHeader(http.StatusOK)
-				_ = json.NewEncoder(w).Encode([]struct {
-					Name   string `json:"name"`
-					Status struct {
-						ProjectStatus struct {
-							UID string `json:"uID"`
-						} `json:"projectStatus"`
-					} `json:"status"`
-				}{
-					{
-						Name: "other-project",
-						Status: struct {
-							ProjectStatus struct {
-								UID string `json:"uID"`
-							} `json:"projectStatus"`
-						}{
-							ProjectStatus: struct {
-								UID string `json:"uID"`
-							}{
-								UID: "uuid-456",
-							},
-						},
-					},
-				})
+				w.WriteHeader(http.StatusNotFound)
 			},
 			expectError:   true,
 			errorContains: "project not found: non-existent",
@@ -178,7 +160,7 @@ func TestResolveProjectUUID(t *testing.T) {
 				w.WriteHeader(http.StatusInternalServerError)
 			},
 			expectError:   true,
-			errorContains: "Nexus API returned status 500",
+			errorContains: "tenant manager returned status 500",
 		},
 		{
 			name:        "invalid JSON response",
@@ -192,20 +174,24 @@ func TestResolveProjectUUID(t *testing.T) {
 			errorContains: "failed to decode response",
 		},
 		{
+			name:        "200 response with empty UUID is a hard failure",
+			projectName: "test-project",
+			authHeader:  "Bearer token123",
+			serverResponse: func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				// Partial/malformed response: status.projectStatus.uID is missing
+				_, _ = w.Write([]byte(`{"name":"test-project","status":{"projectStatus":{}}}`))
+			},
+			expectError:   true,
+			errorContains: "empty project UUID",
+		},
+		{
 			name:        "empty auth header",
 			projectName: "test-project",
 			authHeader:  "",
 			serverResponse: func(w http.ResponseWriter, r *http.Request) {
 				assert.Empty(t, r.Header.Get("Authorization"))
-				w.WriteHeader(http.StatusOK)
-				_ = json.NewEncoder(w).Encode([]struct {
-					Name   string `json:"name"`
-					Status struct {
-						ProjectStatus struct {
-							UID string `json:"uID"`
-						} `json:"projectStatus"`
-					} `json:"status"`
-				}{})
+				w.WriteHeader(http.StatusNotFound)
 			},
 			expectError:   true,
 			errorContains: "project not found",
@@ -289,15 +275,7 @@ func TestResolveAndValidateProjectID(t *testing.T) {
 			},
 			setupServer: func() *httptest.Server {
 				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-					w.WriteHeader(http.StatusOK)
-					_ = json.NewEncoder(w).Encode([]struct {
-						Name   string `json:"name"`
-						Status struct {
-							ProjectStatus struct {
-								UID string `json:"uID"`
-							} `json:"projectStatus"`
-						} `json:"status"`
-					}{})
+					w.WriteHeader(http.StatusNotFound)
 				}))
 			},
 			expectError:   true,
@@ -368,7 +346,7 @@ func TestInjectActiveProjectID(t *testing.T) {
 			setupServer: func() *httptest.Server {
 				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 					w.WriteHeader(http.StatusOK)
-					_ = json.NewEncoder(w).Encode([]struct {
+					_ = json.NewEncoder(w).Encode(struct {
 						Name   string `json:"name"`
 						Status struct {
 							ProjectStatus struct {
@@ -376,18 +354,16 @@ func TestInjectActiveProjectID(t *testing.T) {
 							} `json:"projectStatus"`
 						} `json:"status"`
 					}{
-						{
-							Name: "test-project",
-							Status: struct {
-								ProjectStatus struct {
-									UID string `json:"uID"`
-								} `json:"projectStatus"`
+						Name: "test-project",
+						Status: struct {
+							ProjectStatus struct {
+								UID string `json:"uID"`
+							} `json:"projectStatus"`
+						}{
+							ProjectStatus: struct {
+								UID string `json:"uID"`
 							}{
-								ProjectStatus: struct {
-									UID string `json:"uID"`
-								}{
-									UID: "11111111-1111-1111-1111-111111111111",
-								},
+								UID: "11111111-1111-1111-1111-111111111111",
 							},
 						},
 					})
@@ -432,7 +408,7 @@ func TestInjectActiveProjectID(t *testing.T) {
 			setupServer: func() *httptest.Server {
 				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 					w.WriteHeader(http.StatusOK)
-					_ = json.NewEncoder(w).Encode([]struct {
+					_ = json.NewEncoder(w).Encode(struct {
 						Name   string `json:"name"`
 						Status struct {
 							ProjectStatus struct {
@@ -440,18 +416,16 @@ func TestInjectActiveProjectID(t *testing.T) {
 							} `json:"projectStatus"`
 						} `json:"status"`
 					}{
-						{
-							Name: "test-project",
-							Status: struct {
-								ProjectStatus struct {
-									UID string `json:"uID"`
-								} `json:"projectStatus"`
+						Name: "test-project",
+						Status: struct {
+							ProjectStatus struct {
+								UID string `json:"uID"`
+							} `json:"projectStatus"`
+						}{
+							ProjectStatus: struct {
+								UID string `json:"uID"`
 							}{
-								ProjectStatus: struct {
-									UID string `json:"uID"`
-								}{
-									UID: "55555555-5555-5555-5555-555555555555",
-								},
+								UID: "55555555-5555-5555-5555-555555555555",
 							},
 						},
 					})
