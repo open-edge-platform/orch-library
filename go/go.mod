@@ -4,7 +4,7 @@
 
 module github.com/open-edge-platform/orch-library/go
 
-go 1.24.0
+go 1.26.3
 
 require (
 	github.com/cenkalti/backoff v2.2.1+incompatible
