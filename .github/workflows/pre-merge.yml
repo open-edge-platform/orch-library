@@ -35,7 +35,7 @@ jobs:
         id: filter-changes
         run: |
           folders_to_remove='[".github",".reuse","LICENSES"]'
-          
+
           filtered_projects=$(echo "$changed_projects" | jq -cr --argjson folders_to_remove "$folders_to_remove" 'map(select(. as $item | $folders_to_remove | index($item) | not))')
           echo "filtered_projects=$filtered_projects" >> $GITHUB_OUTPUT
   pre-merge-pipeline:
@@ -67,7 +67,7 @@ jobs:
         env:
           pre_merge_pipeline_result: ${{ needs.pre-merge-pipeline.result }}
         run: |
-          
+
           echo "Pre-merge pipeline result: $pre_merge_pipeline_result"
 
           if [ "$pre_merge_pipeline_result" == "success" ] || [ "$pre_merge_pipeline_result" == "skipped" ]; then
