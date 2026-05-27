@@ -1,5 +1,6 @@
 <!---
-  SPDX-FileCopyrightText: (C) 2024 Intel Corporation
+  SPDX-FileCopyrightText: (C) 2026 Intel Corporation
+
   SPDX-License-Identifier: Apache-2.0
 -->
 
@@ -24,7 +25,7 @@ Dazl loggers add numerous features on top of existing frameworks:
 - Hierarchical loggers, inheritance, sampling and other advanced features
 - Supports runtime configuration changes for easy debugging
 
-# User Guide
+## User Guide
 
 - [Use cases](#use-cases)
   - [Logging in Go libraries](#logging-in-go-libraries)
@@ -72,9 +73,9 @@ like Kubernetes. Most Go logging frameworks provide programmatic APIs for config
 other logging options. Using dazl in Go-based services enables your users to configure logging independent of the
 code, eliminating the need to recompile code to modify the verbosity or format of application logs.
 
-# Getting started
+## Getting started
 
-## Add the dazl dependencies
+### Add the dazl dependencies
 
 To start using dazl, first add the framework to your `go.mod`:
 
@@ -88,7 +89,7 @@ Additionally, add the dependency for one of the [logging backends](#initializing
 go get -u github.com/atomix/dazl/zap
 ```
 
-## Import a logging backend
+### Import a logging backend
 
 Import the logging backend in your module `main`:
 
@@ -112,7 +113,7 @@ func main() {
 To avoid adding unnecessary dependencies on logging frameworks, logging backends should only be imported within
 your module `main`.
 
-## Configure logging
+### Configure logging
 
 Create a `logging.yaml` file to configure the logging framework:
 
@@ -143,7 +144,7 @@ rootLogger:
 To print logs to an output, the `logging.yaml` configuration must configure one or more `writers` and configure the
 `rootLogger` or child `loggers` with `outputs` to output messages from those loggers to the configured writer(s).
 
-## Run the application
+### Run the application
 
 Finally, when you run the application `main` from the same directory as your `logging.yaml` file, you should see
 the logs printed to stdout:
@@ -154,9 +155,9 @@ go run ./main.go
 
 For more information [check out the example module](./examples).
 
-# Go API
+## Go API
 
-## Initializing the logging framework
+### Initializing the logging framework
 
 The dazl logger does not log to any output unless a logging framework is imported. To maintain independence from any
 particular logging backend, applications should only import a specific logging framework from within a `main` file.
@@ -315,7 +316,7 @@ When the logger is output to a JSON encoded writer, the above code will log the 
 {"timestamp":"2023-04-07T19:24:09-07:00","logger":"2/4","message":"Something went wrong!","user":"Jordan Halterman","id":5678}
 ```
 
-# Configuration files
+## Configuration files
 
 Loggers can be configured via a YAML configuration file. The configuration files may be in one of many
 locations on the file system:
@@ -327,7 +328,7 @@ locations on the file system:
 The configuration file contains a set of `loggers` which specifies the level and outputs of each logger,
 `writers` which specify where to write log messages, and `encoders` defining how to encode log messages.
 
-## Configuring encoders
+### Configuring encoders
 
 The `encoders` section of the configuration defines how dazl encodes log messages. Dazl supports two
 encodings: `json` and `console`. Each encoder defines the set of `fields` to output and optionally the
@@ -701,9 +702,9 @@ to the `debug` level.
 A [reference configuration file](./examples/reference.yaml) detailing and documenting all the available configuration
 options in `logging.yaml` is available in the [examples](./examples) directory of this repo.
 
-# Runtime configuration changes
+## Runtime configuration changes
 
-## Changing the log level
+### Changing the log level
 
 You can set the `dazl.Level` for a logger at startup time via configuration files or at runtime
 via the `Logger` API to control the granularity of a logger's output:
@@ -718,7 +719,7 @@ The root logger is the ancestor of all other loggers and can be configured via `
 dazl.GetRootLogger().SetLevel(dazl.InfoLevel)
 ```
 
-# Custom logging frameworks
+## Custom logging frameworks
 
 Dazl provides several existing implementations of logging frameworks:
 
@@ -759,7 +760,7 @@ func (e *JSONEncoder) NewWriter(writer io.Writer) (dazl.Writer, error) {
 }
 ```
 
-## JSON encoding
+### JSON encoding
 
 To implement support for JSON encoding, implement the `JSONEncodingFramework` interface:
 
@@ -769,7 +770,7 @@ func (f Framework) JSONEncoder() Encoder {
 }
 ```
 
-## Console encoding
+### Console encoding
 
 To implement support for JSON encoding, implement the `ConsoleEncodingFramework` interface:
 
@@ -779,7 +780,7 @@ func (f Framework) ConsoleEncoder() Encoder {
 }
 ```
 
-## Encoding options
+### Encoding options
 
 `Encoder` implementations may support configuration options by implementing optional interfaces with the
 following methods:

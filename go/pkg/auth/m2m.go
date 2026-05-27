@@ -98,7 +98,7 @@ func (v *vaultAuth) GetVaultToken(ctx context.Context) (string, error) {
 		JWT:  string(tokenData),
 		Role: v.serviceAccount,
 	}
-	body, _ := json.Marshal(loginReq)
+	body, _ := json.Marshal(loginReq) //nolint:gosec // JWT field marshaling is intentional
 	req, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodPost,

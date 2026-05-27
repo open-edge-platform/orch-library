@@ -1,8 +1,8 @@
-// SPDX-FileCopyrightText: (C) 2024 Intel Corporation
+// SPDX-FileCopyrightText: (C) 2026 Intel Corporation
 //
 // SPDX-License-Identifier: Apache-2.0
 
-package metrics
+package metrics //nolint:revive
 
 import (
 	"github.com/open-edge-platform/app-orch-deployment/app-deployment-manager/api/v1beta1"

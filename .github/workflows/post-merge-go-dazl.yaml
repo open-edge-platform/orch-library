@@ -1,5 +1,6 @@
 ---
-# SPDX-FileCopyrightText: (C) 2025 Intel Corporation
+# SPDX-FileCopyrightText: (C) 2026 Intel Corporation
+#
 # SPDX-License-Identifier: Apache-2.0
 
 name: Post-Merge CI Pipeline
@@ -11,7 +12,8 @@ on:
       - release-*
   workflow_dispatch:
 
-permissions: {}
+permissions:
+  contents: read
 
 jobs:
   post-merge-pipeline:
@@ -19,7 +21,8 @@ jobs:
       contents: read
       security-events: write
       id-token: write
-    uses: open-edge-platform/orch-ci/.github/workflows/post-merge.yml@cf81328e4c9526e579181efb1f609af06071889b  # 0.1.55
+      actions: read
+    uses: open-edge-platform/orch-ci/.github/workflows/post-merge.yml@1871595c6bb5f5f29b957725e9cbb05ef8071ca1  # 2026.1.3
     with:
       run_version_check: true
       run_dep_version_check: false
@@ -32,9 +35,7 @@ jobs:
       prefix_tag_separator: "/"
       project_folder: "go/dazl"
     secrets:
-      SYS_ORCH_GITHUB: ${{ secrets.SYS_ORCH_GITHUB }}
-      COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
-      COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+      SYS_EMF_GH_TOKEN: ${{ secrets.SYS_EMF_GH_TOKEN }}
       NO_AUTH_ECR_PUSH_USERNAME: ${{ secrets.NO_AUTH_ECR_PUSH_USERNAME }}
       NO_AUTH_ECR_PUSH_PASSWD: ${{ secrets.NO_AUTH_ECR_PUSH_PASSWD }}
       MSTEAMS_WEBHOOK: ${{ secrets.TEAMS_WEBHOOK }}
